@@ -63,6 +63,23 @@ typedef enum {
 } Machine_State;
 Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
 
+/* Matches LFS_NAME_MAX */
+#define MAX_PATH_LEN 255
+
+#define PARTITION_NODE DT_NODELABEL(lfs1)
+
+#if DT_NODE_EXISTS(PARTITION_NODE)
+FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
+#else /* PARTITION_NODE */
+FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+static struct fs_mount_t lfs_storage_mnt = {
+	.type = FS_LITTLEFS,
+	.fs_data = &storage,
+	.storage_dev = (void *)FLASH_AREA_ID(storage),
+	.mnt_point = "/lfs",
+};
+#endif /* PARTITION_NODE */
+
 /** A discharge curve specific to the power source. */
 // TODO measure DataDisc battery curve
 static const struct battery_level_point levels[] = {
@@ -174,6 +191,129 @@ static const char *now_str(void) {
   return buf;
 }
 
+void filesystem_init(void) {
+  struct fs_mount_t *mp =
+#if DT_NODE_EXISTS(PARTITION_NODE)
+      &FS_FSTAB_ENTRY(PARTITION_NODE)
+#else
+      &lfs_storage_mnt
+#endif
+      ;
+  unsigned int id = (uintptr_t)mp->storage_dev;
+  char fname[MAX_PATH_LEN];
+  struct fs_statvfs sbuf;
+  const struct flash_area *pfa;
+  int rc;
+
+  snprintf(fname, sizeof(fname), "%s/boot_count", mp->mnt_point);
+
+  rc = flash_area_open(id, &pfa);
+  if (rc < 0) {
+    printk("FAIL: unable to find flash area %u: %d\n",
+        id, rc);
+    return;
+  }
+
+  printk("Area %u at 0x%x on %s for %u bytes\n",
+      id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
+      (unsigned int)pfa->fa_size);
+
+  /* Optional wipe flash contents */
+  if (IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
+    printk("Erasing flash area ... ");
+    rc = flash_area_erase(pfa, 0, pfa->fa_size);
+    printk("%d\n", rc);
+  }
+
+  flash_area_close(pfa);
+
+  rc = fs_mount(mp);
+  if (rc < 0) {
+    printk("FAIL: mount id %u at %s: %d\n",
+        (unsigned int)mp->storage_dev, mp->mnt_point,
+        rc);
+    return;
+  }
+  printk("%s mount: %d\n", mp->mnt_point, rc);
+
+  rc = fs_statvfs(mp->mnt_point, &sbuf);
+  if (rc < 0) {
+    printk("FAIL: statvfs: %d\n", rc);
+    goto out;
+  }
+
+  printk("%s: bsize = %lu ; frsize = %lu ;"
+         " blocks = %lu ; bfree = %lu\n",
+      mp->mnt_point,
+      sbuf.f_bsize, sbuf.f_frsize,
+      sbuf.f_blocks, sbuf.f_bfree);
+
+  struct fs_dirent dirent;
+
+  rc = fs_stat(fname, &dirent);
+  printk("%s stat: %d\n", fname, rc);
+  if (rc >= 0) {
+    printk("\tfn '%s' siz %u\n", dirent.name, dirent.size);
+  }
+
+  struct fs_file_t file;
+
+  fs_file_t_init(&file);
+
+  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
+  if (rc < 0) {
+    printk("FAIL: open %s: %d\n", fname, rc);
+    goto out;
+  }
+
+  uint32_t boot_count = 0;
+
+  if (rc >= 0) {
+    rc = fs_read(&file, &boot_count, sizeof(boot_count));
+    printk("%s read count %u: %d\n", fname, boot_count, rc);
+    rc = fs_seek(&file, 0, FS_SEEK_SET);
+    printk("%s seek start: %d\n", fname, rc);
+  }
+
+  boot_count += 1;
+  rc = fs_write(&file, &boot_count, sizeof(boot_count));
+  printk("%s write new boot count %u: %d\n", fname,
+      boot_count, rc);
+
+  rc = fs_close(&file);
+  printk("%s close: %d\n", fname, rc);
+
+  struct fs_dir_t dir;
+
+  fs_dir_t_init(&dir);
+
+  rc = fs_opendir(&dir, mp->mnt_point);
+  printk("%s opendir: %d\n", mp->mnt_point, rc);
+
+  while (rc >= 0) {
+    struct fs_dirent ent = {0};
+
+    rc = fs_readdir(&dir, &ent);
+    if (rc < 0) {
+      break;
+    }
+    if (ent.name[0] == 0) {
+      printk("End of files\n");
+      break;
+    }
+    printk("  %c %u %s\n",
+        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
+        ent.size,
+        ent.name);
+  }
+
+  (void)fs_closedir(&dir);
+
+out:
+  rc = fs_unmount(mp);
+  printk("%s unmount: %d\n", mp->mnt_point, rc);
+}
+
 /***************************************************************
 *   Main
 *
@@ -186,6 +326,8 @@ void main(void) {
   SEGGER_RTT_Init();
 
   printk("Starting DataDisc v2\n");
+
+  filesystem_init();
 
   // Initialize the Bluetooth Subsystem
   //err = bt_enable(NULL);
@@ -516,11 +658,11 @@ void spi_flash_thread(void) {
   int err;
   struct datalog_fifo_item_t *fifo_item;
 
-  flash_dev = device_get_binding(FLASH_DEVICE);
-  if (!flash_dev) {
-    printk("Device %s not found!\n", FLASH_DEVICE);
-    return;
-  }
+  //flash_dev = device_get_binding(FLASH_DEVICE);
+  //if (!flash_dev) {
+  //  printk("Device %s not found!\n", FLASH_DEVICE);
+  //  return;
+  //}
 
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
