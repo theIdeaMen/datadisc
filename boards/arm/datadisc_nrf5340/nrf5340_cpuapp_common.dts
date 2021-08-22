@@ -1,0 +1,255 @@
+/*
+ * Copyright (c) 2021 Griffin Adams
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,uart-mcumgr = &uart0;
+		zephyr,bt-mon-uart = &uart0;
+		zephyr,bt-c2h-uart = &uart0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led0: led_0 {
+			gpios = <&gpio0 31 GPIO_PULL_DOWN>;
+			label = "Blue LED";
+		};
+	};
+	
+	pwmdevs {
+		compatible = "pwm-leds";
+		my_pwm: pwm_device_0 {
+			pwms = < &pwm0 31 >;
+			label = "PWM LED";
+		};
+	};
+	
+	/* These aliases are provided for compatibility with samples */
+	aliases {
+		led0 = &led0;
+		pwm-led0 = &my_pwm;
+	};
+	
+	vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 5>;
+		output-ohms = <100000>;
+		full-ohms = <(100000 + 140000)>;
+		power-gpios = <&gpio0 3 GPIO_PULL_DOWN>;
+	};
+};
+
+&adc {
+	status = "okay";
+};
+
+&gpiote {
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&i2c0 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	
+	clock-frequency = <400000>;
+	sda-pin = <47>;
+	scl-pin = <46>;
+	
+	ch201-prog@45 {
+		compatible = "tdk,ch201";
+		reg = <0x45>;
+		wakeup-gpios = <&gpio1 12 GPIO_ACTIVE_HIGH>;
+		label = "CH201-TOF-PROG";
+	};
+	
+	ch201-app@29 {
+		compatible = "tdk,ch201";
+		reg = <0x29>;
+		irq-gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
+		label = "CH201-TOF-APP";
+	};
+};
+
+&i2c1 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	
+	clock-frequency = <1000000>;
+	sda-pin = <34>;
+	scl-pin = <35>;
+	
+	bm1422agmv@e {
+		compatible = "rohm,bm1422agmv";
+		reg = <0x0e>;
+		irq-gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+		label = "BM1422AGMV-MAG";
+	};
+};
+
+&pwm0 {
+	status = "okay";
+	ch0-pin = <31>;
+};
+
+&uart0 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	current-speed = <115200>;
+	tx-pin = <20>;
+	rx-pin = <22>;
+	rts-pin = <19>;
+	cts-pin = <21>;
+};
+
+&uart1 {
+	status = "disabled";
+};
+
+&uart2 {
+	status = "disabled";
+};
+
+&spi2 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	sck-pin = <7>;
+	miso-pin = <8>;
+	mosi-pin = <9>;
+	cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+	miso-pull-down;
+	
+	kx134alpha: kx134-1211@0 {
+		compatible = "kionix,kx134-1211";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		irq-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>,
+		 			<&gpio0 5 GPIO_ACTIVE_HIGH>;
+		wakeup-gpios = <&gpio0 6 GPIO_PULL_DOWN>;
+		label = "KX134-1211-ACL";
+	};
+};
+
+&spi3 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	sck-pin = <39>;
+	miso-pin = <40>;
+	mosi-pin = <41>;
+	cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
+	miso-pull-down;
+	
+	kx134beta: kx134-1211@0 {
+		compatible = "kionix,kx134-1211";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		irq-gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>,
+					<&gpio1 5 GPIO_ACTIVE_HIGH>;
+		wakeup-gpios = <&gpio1 6 GPIO_PULL_DOWN>;
+		label = "KX134-1211-ACL";
+	};
+};
+
+&spi4 {
+	status = "disabled";
+};
+
+&qspi {
+	status = "okay";
+	sck-pin = <17>;
+	io-pins = <13>, <14>, <15>, <16>;
+	csn-pins = <18>;
+	at25sl321: at25sl321@0 {
+		compatible = "nordic,qspi-nor";
+		reg = <0>;
+		/* AT25SL321 supports pp, pp2io, pp4io */
+		writeoc = "pp4io";
+		/* AT25SL321 supports all readoc options */
+		readoc = "read4io";
+		sck-frequency = <25000000>;
+		label = "AT25SL321";
+		jedec-id = [1f 42 16];
+		size = <33554432>;
+	};
+};
+
+&timer0 {
+	status = "okay";
+};
+
+&timer1 {
+	status = "okay";
+};
+
+&timer2 {
+	status = "okay";
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x00010000>;
+		};
+		slot0_partition: partition@10000 {
+			label = "image-0";
+		};
+		slot0_ns_partition: partition@50000 {
+			label = "image-0-nonsecure";
+		};
+		slot1_partition: partition@80000 {
+			label = "image-1";
+		};
+		slot1_ns_partition: partition@c0000 {
+			label = "image-1-nonsecure";
+		};
+		scratch_partition: partition@f0000 {
+			label = "image-scratch";
+			reg = <0x000f0000 0xa000>;
+		};
+		storage_partition: partition@fa000 {
+			label = "storage";
+			reg = <0x000fa000 0x00006000>;
+		};
+	};
+};
+
+/ {
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		sram0_image: image@20000000 {
+			/* Zephyr image(s) memory */
+		};
+
+		sram0_s: image_s@20000000 {
+			/* Secure image memory */
+		};
+
+		sram0_ns: image_ns@20040000 {
+			/* Non-Secure image memory */
+		};
+	};
+};
+
+/* Include partition configuration file */
+#include "nrf5340_cpuapp_partition_conf.dts"

@@ -1,0 +1,24 @@
+# Copyright (c) 2021 Griffin Adams
+# SPDX-License-Identifier: Apache-2.0
+
+description: KX134-1211 3-axis high-g accelerometer, accessed through SPI bus
+
+compatible: "kionix,kx134-1211"
+
+include: spi-device.yaml
+
+properties:
+    irq-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        The INT1 signal defaults to active high as produced by the
+        sensor.  The property value should ensure the flags properly
+        describe the signal that is presented to the driver.
+    wakeup-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        The trigger signal defaults to active high as produced by the
+        MCU.  The property value should ensure the flags properly
+        describe the signal that is presented to the driver.

@@ -1,0 +1,1102 @@
+# 3-Axis, +/-64g Digital Accelerometer
+
+# Copyright (c) 2021 Griffin Adams
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig KX134
+	bool "KX134 Three Axis High-g I2C/SPI Accelerometer"
+	depends on I2C || SPI
+	help
+		Enable driver for KX134 Three-Axis Digital Accelerometers.
+
+if KX134
+
+module = KX134
+module-str = kx134
+source "subsys/logging/Kconfig.template.log_config"
+
+choice KX134_BUS_TYPE
+	prompt "Interface type"
+	help
+		Select interface the digital interface type for the KX134
+
+	config KX134_I2C
+		depends on I2C
+		bool "I2C Interface"
+
+	config KX134_SPI
+		depends on SPI
+		bool "SPI Interface"
+
+endchoice
+
+choice
+	prompt "Power Mode"
+	default KX134_LOW_POWER_MODE
+
+	config KX134_LOW_POWER_MODE
+		bool "Low Power Mode"
+		help
+			Higher noise, lower current.
+		  
+	config KX134_HIGH_PERF_MODE
+		bool "High Performance Mode"
+		help
+			Lower noise, higher current.
+		  
+endchoice
+
+choice
+	prompt "Averaging Filter Control"
+	default KX134_AVC_16SAMPLES
+	
+	config KX134_AVC_NONE
+		bool "No Averaging"
+	
+	config KX134_AVC_2SAMPLES
+		bool "2 Samples Averaged"
+		
+	config KX134_AVC_4SAMPLES
+		bool "4 Samples Averaged"
+	
+	config KX134_AVC_8SAMPLES
+		bool "8 Samples Averaged"
+	
+	config KX134_AVC_16SAMPLES
+		bool "16 Samples Averaged"
+		
+	config KX134_AVC_32SAMPLES
+		bool "32 Samples Averaged"
+	
+	config KX134_AVC_64SAMPLES
+		bool "64 Samples Averaged"
+		
+	config KX134_AVC_128SAMPLES
+		bool "128 Samples Averaged"
+		
+endchoice
+
+choice
+	prompt "G-Range Select"
+	default KX134_RANGE_8G
+
+	config KX134_RANGE_8G
+		bool "+/- 8g"
+
+	config KX134_RANGE_16G
+		bool "+/- 16g"
+		
+	config KX134_RANGE_32G
+		bool "+/- 32g"
+		
+	config KX134_RANGE_64G
+		bool "+/- 64g"
+
+endchoice
+	
+config KX134_C_MODE
+	bool "Debounce counter clear mode (n: reset, y: decrement)"
+	
+config KX134_PR_MODE
+	bool "Pulse reject mode (n: standard, y: not standard)"
+
+menuconfig KX134_I2C_ALE
+	bool "I2C Auto Release Function"
+	depends on KX134_I2C
+	
+choice
+	prompt "I2C Auto Release Timeout"
+	depends on KX134_I2C_ALE
+	default KX134_I2C_ALC_0S5
+	
+	config KX134_I2C_ALC_0S5
+		bool "0.5 sec"
+	
+	config KX134_I2C_ALC_1S
+		bool "1.0 sec"
+	
+	config KX134_I2C_ALC_2S
+		bool "2.0 sec"
+		
+	config KX134_I2C_ALC_4S
+		bool "4.0 sec"
+		
+endchoice
+
+choice
+	prompt "Accelerometer sampling frequency (OSA)"
+	default KX134_OSA_50HZ
+	help
+		Rates marked with ** are only available in High Performance Mode.
+
+	config KX134_OSA_0HZ781
+		bool "0.781 Hz"
+
+	config KX134_OSA_1HZ563
+		bool "1.563 Hz"
+
+	config KX134_OSA_3HZ125
+		bool "3.125 Hz"
+
+	config KX134_OSA_6HZ25
+		bool "6.25 Hz"
+
+	config KX134_OSA_12HZ5
+		bool "12.5 Hz"
+		
+	config KX134_OSA_25HZ
+		bool "25 Hz"
+
+	config KX134_OSA_50HZ
+		bool "50 Hz"
+
+	config KX134_OSA_100HZ
+		bool "100 Hz"
+
+	config KX134_OSA_200HZ
+		bool "200 Hz"
+
+	config KX134_OSA_400HZ
+		bool "400 Hz"
+
+	config KX134_OSA_800HZ
+		bool "800 Hz**"
+
+	config KX134_OSA_1600HZ
+		bool "1600 Hz**"
+		
+	config KX134_OSA_3200HZ
+		bool "3200 Hz**"
+
+	config KX134_OSA_6400HZ
+		bool "6400 Hz**"
+
+	config KX134_OSA_12800HZ
+		bool "12800 Hz**"
+
+	config KX134_OSA_25600HZ
+		bool "25600 Hz**"
+		
+endchoice
+
+config KX134_FSTUP
+	bool "Fast Start Up"
+	depends on KX134_HIGH_PERF_MODE && ( KX134_ODR_0HZ781 || KX134_ODR_1HZ563 || KX134_ODR_3HZ125 || KX134_ODR_6HZ25  || KX134_ODR_12HZ5  || KX134_ODR_25HZ   || KX134_ODR_50HZ   || KX134_ODR_100HZ  || KX134_ODR_200HZ )
+
+choice
+	prompt "Low-Pass (Antialiasing) Filter corner frequency"
+	default KX134_IIR_ODR_BY_9
+	help
+		High g events often include acceleration content over a wide range
+		of frequencies. The ADC of the KX134 samples the input acceleration
+		at the user selected ODR.
+		In the absence of antialiasing filters, input signals whose frequency
+		is more than half the ODR alias or fold into the measurement bandwidth
+		can lead to inaccurate measurements.
+
+	config KX134_IIR_ODR_BY_9
+		bool "ODR/9"
+
+	config KX134_IIR_ODR_BY_2
+		bool "ODR/2"
+		
+endchoice
+
+menuconfig KX134_INT1
+	bool "Interrupt Pin 1"
+	
+config KX134_IEA1
+	bool "Interrupt 1 Level Control"
+	depends on KX134_INT1
+	help
+		n: active LOW, y: active HIGH
+	
+config KX134_IEL1
+	bool "Interrupt 1 Latch Control"
+	depends on KX134_INT1
+	
+choice
+	prompt "Interrupt 1 Pulse Width Config"
+	depends on KX134_IEL1
+	default KX134_PW1_USEC
+	help
+		When PW1 > 0, Interrupt source auto-clearing (ACLR1=1) 
+		should be set to keep consistency between the internal 
+		status and the physical interrupt.
+	
+	config KX134_PW1_USEC
+		bool "50 usec"
+		help
+			10µsec if accelerometer ODR (OSA<3:0>) > 1600Hz
+		
+	config KX134_PW1_1XOSA
+		bool "1 * OSA period"
+	
+	config KX134_PW1_2XOSA
+		bool "2 * OSA period"
+		
+	config KX134_PW1_RTIME
+		bool "Real time"
+		
+endchoice
+
+if KX134_INT1
+
+config KX134_ACLR1
+	bool "Autoclear for INT1"
+	help
+		Latched interrupt source information (INS1-INS3) is cleared 
+		and physical interrupt-1 latched pin is changed to its inactive 
+		state at pulse interrupt-1 trailing edge. Note: WMI and BFI 
+		are not auto-cleared by a pulse interrupt trailing edge.
+
+config KX134_FFI1
+	bool "Free fall reported on INT1"
+	
+config KX134_BFI1
+	bool "Buffer full reported on INT1"
+	
+config KX134_WMI1
+	bool "Watermark reported on INT1"
+	help
+		WMI & BFI are level triggered interrupt source. If the valid 
+		condition persists, and the interrupt stays enabled, the interrupt 
+		will block any further interrupts from other sources from triggering 
+		the INT1 pin. To let other interrupt sources through, WMI/BFI needs 
+		to be cleared once detected.
+	
+config KX134_DRDYI1
+	bool "Data ready reported on INT1"
+	
+config KX134_BTSI1
+	bool "Back-to-sleep reported on INT1"
+
+config KX134_TDTI1
+	bool "Tap/Double-Tap reported on INT1"
+	
+config KX134_WUFI1
+	bool "Wake-Up reported on INT1"
+	
+config KX134_TPI1
+	bool "Tilt position reported on INT1"
+
+endif
+
+menuconfig KX134_INT2
+	bool "Interrupt Pin 2"
+	
+config KX134_IEA2
+	bool "Interrupt 2 Level Control"
+	depends on KX134_INT2
+	help
+		n: active LOW, y: active HIGH
+	
+config KX134_IEL2
+	bool "Interrupt 2 Latch Control"
+	depends on KX134_INT2
+	
+choice
+	prompt "Interrupt 2 Pulse Width Config"
+	depends on KX134_IEL2
+	default KX134_PW2_USEC
+	help
+		When PW2 > 0, Interrupt source auto-clearing (ACLR2=1) 
+		should be set to keep consistency between the internal 
+		status and the physical interrupt.
+	
+	config KX134_PW2_USEC
+		bool "50 usec"
+		help
+			10µsec if accelerometer ODR (OSA<3:0>) > 1600Hz
+		
+	config KX134_PW2_1XOSA
+		bool "1 * OSA period"
+	
+	config KX134_PW2_2XOSA
+		bool "2 * OSA period"
+		
+	config KX134_PW2_RTIME
+		bool "Real time"
+		
+endchoice
+
+if KX134_INT2
+
+config KX134_ACLR2
+	bool "Autoclear for INT2"
+	help
+		Latched interrupt source information (INS1-INS3) is cleared 
+		and physical interrupt-2 latched pin is changed to its inactive 
+		state at pulse interrupt-2 trailing edge. Note: WMI and BFI 
+		are not auto-cleared by a pulse interrupt trailing edge.
+
+config KX134_FFI2
+	bool "Free fall reported on INT2"
+	
+config KX134_BFI2
+	bool "Buffer full reported on INT2"
+	
+config KX134_WMI2
+	bool "Watermark reported on INT2"
+	help
+		WMI & BFI are level triggered interrupt source. If the valid 
+		condition persists, and the interrupt stays enabled, the interrupt 
+		will block any further interrupts from other sources from triggering 
+		the INT2 pin. To let other interrupt sources through, WMI/BFI needs 
+		to be cleared once detected.
+	
+config KX134_DRDYI2
+	bool "Data ready reported on INT2"
+	
+config KX134_BTSI2
+	bool "Back-to-sleep reported on INT2"
+
+config KX134_TDTI2
+	bool "Tap/Double-Tap reported on INT2"
+	
+config KX134_WUFI2
+	bool "Wake-Up reported on INT2"
+	
+config KX134_TPI2
+	bool "Tilt position reported on INT2"
+
+endif
+
+
+
+choice
+	prompt "Free Fall debounce method"
+	depends on KX134_FFI1 || KX134_FFI2
+	default KX134_DCRM_UPDOWN
+		
+	config KX134_DCRM_UPDOWN
+		bool "Count up/down"
+		
+	config KX134_DCRM_UPRESET
+		bool "Count up/reset"
+		
+endchoice
+	
+choice
+	prompt "Free fall output latched/unlatched"
+	depends on KX134_FFI1 || KX134_FFI2
+	default KX134_ULMODE_LATCHED
+		
+	config KX134_ULMODE_LATCHED
+		bool "Latched output"
+		
+	config KX134_ULMODE_UNLATCHED
+		bool "Unlatched output"
+		
+endchoice
+
+choice
+	prompt "Free Fall delayed clear"
+	depends on KX134_ULMODE_UNLATCHED
+	default KX134_FFDC_0S
+		
+	config KX134_FFDC_0S
+		bool "0 sec delay"
+		
+	config KX134_FFDC_1S
+		bool "1 sec delay"
+		
+	config KX134_FFDC_2S
+		bool "2 sec delay"
+		
+	config KX134_FFDC_4S
+		bool "4 sec delay"
+		
+endchoice
+
+choice
+	prompt "Free Fall Output ODR"
+	depends on KX134_FFI1 || KX134_FFI2
+	default KX134_OFFI_ODR_12HZ5
+		
+	config KX134_OFFI_ODR_12HZ5
+		bool "12.5 Hz"
+		
+	config KX134_OFFI_ODR_25HZ
+		bool "25 Hz"
+	
+	config KX134_OFFI_ODR_50HZ
+		bool "50 Hz"
+		
+	config KX134_OFFI_ODR_100HZ
+		bool "100 Hz"
+	
+	config KX134_OFFI_ODR_200HZ
+		bool "200 Hz"
+		
+	config KX134_OFFI_ODR_400HZ
+		bool "400 Hz"
+		
+	config KX134_OFFI_ODR_800HZ
+		bool "800 Hz"
+		
+	config KX134_OFFI_ODR_1600HZ
+		bool "1600 Hz"
+		
+endchoice
+
+config KX134_FFTH
+	int "Free Fall Threshold"
+	depends on KX134_FFI1 || KX134_FFI2
+	default 0
+	range 0 255
+	help
+		Free Fall Threshold. This register contains the threshold of the Free 
+		fall detection. This value is compared to the top 8 bits of the 
+		accelerometer 32g output (independent of the actual g-range setting 
+		of the device). This register is On-The-Fly (OTF) register and can be 
+		written to while the KX134-1211 is enabled and the change will be 
+		accepted with no interruption in the operation.
+		
+config KX134_FFC
+	int "Free Fall Counter"
+	depends on KX134_FFI1 || KX134_FFI2
+	default 0
+	range 0 255
+	help
+		Free Fall Counter. This register contains the counter setting of the Free 
+		fall detection. Every count is calculated as 1/ODR delay period where ODR 
+		is set bit OFFI<2:0> in FFCNTL register. This register is On-The-Fly (OTF).
+	
+	
+choice
+	prompt "Buffer saved data resolution"
+	depends on KX134_BFI1 || KX134_BFI2
+	default KX134_BRES_8BIT
+		
+	config KX134_BRES_8BIT
+		bool "8-bit samples are accumulated in the buffer"
+		
+	config KX134_BRES_16BIT
+		bool "16-bit samples are accumulated in the buffer"
+		
+endchoice
+
+choice
+	prompt "Buffer operating mode"
+	depends on KX134_BFI1 || KX134_BFI2
+	default KX134_BM_FIFO
+		
+	config KX134_BM_FIFO
+		bool "FIFO Buffer Mode"
+		
+	config KX134_BM_STREAM
+		bool "Stream Buffer Mode"
+		
+	config KX134_BM_STREAM
+		bool "Trigger Buffer Mode"
+		
+endchoice
+
+config KX134_SMP_TH
+	int "Buffer watermark threshold"
+	depends on KX134_WMI1 || KX134_WMI2
+	default 0
+	range 0 255
+	help
+		Hysteresis Setting: This register sets the hysteresis that is placed in 
+		between the Screen Rotation states. The KX134-1211 ships from the factory 
+		with HYST_SET set to ±15° of hysteresis.
+		
+		
+choice
+	prompt "AND-OR Configuration on Motion"
+	depends on KX134_BTSI1 || KX134_WUFI1
+	default KX134_AOI_OR
+
+	config KX134_AOI_OR
+		bool "OR combination between selected axes"
+	
+	config KX134_AOI_AND
+		bool "AND combination between selected axes"
+
+endchoice
+
+menu "Motion Interrupt Sources"
+	depends on KX134_BTSI1 || KX134_WUFI1 || KX134_BTSI2 || KX134_WUFI2
+	
+	config KX134_XNWUE
+		bool "X Negative (X-) mask for WUF and BTS"
+	
+	config KX134_XPWUE
+		bool "X Positive (X+) mask for WUF and BTS"
+		
+	config KX134_YNWUE
+		bool "Y Negative (Y-) mask for WUF and BTS"
+	
+	config KX134_YPWUE
+		bool "Y Positive (Y+) mask for WUF and BTS"
+	
+	config KX134_ZNWUE
+		bool "Z Negative (Z-) mask for WUF and BTS"
+	
+	config KX134_ZPWUE
+		bool "Z Positive (Z+) mask for WUF and BTS"
+
+endmenu
+
+menu "Tap/Double-Tap Interrupt Sources"
+	depends on KX134_TDTI1 || KX134_TDTI2
+	
+	config KX134_TMEN
+		bool "Alternate tap masking scheme"
+		help
+			The alternate tap masking scheme attenuates disabled 
+			axes/directions by 50% with regard to detecting taps 
+			and determining to which axis an event is attributed to.
+	
+	config KX134_TLEM
+		bool "Tap Left (X-) state mask"
+	
+	config KX134_TRIM
+		bool "Tap Right (X+) state mask"
+		
+	config KX134_TDOM
+		bool "Tap Down (Y-) state mask"
+	
+	config KX134_TUPM
+		bool "Tap Up (Y+) state mask"
+	
+	config KX134_TFDM
+		bool "Tap Face Down (Z-) state mask"
+	
+	config KX134_TFUM
+		bool "Tap Face Up (Z+) state mask"
+
+endmenu
+
+choice
+	prompt "Wake-Up Function ODR"
+	depends on KX134_WUFI1 || KX134_WUFI2
+	default KX134_OWUF_ODR_0HZ781
+	
+	config KX134_OWUF_ODR_0HZ781
+		bool "0.781 Hz"
+	
+	config KX134_OWUF_ODR_1HZ563
+		bool "1.563 Hz"
+		
+	config KX134_OWUF_ODR_3HZ125
+		bool "3.125 Hz"
+	
+	config KX134_OWUF_ODR_6HZ25
+		bool "6.25 Hz"
+		
+	config KX134_OWUF_ODR_12HZ5
+		bool "12.5 Hz"
+	
+	config KX134_OWUF_ODR_25HZ
+		bool "25 Hz"
+		
+	config KX134_OWUF_ODR_50HZ
+		bool "50 Hz"
+	
+	config KX134_OWUF_ODR_100HZ
+		bool "100 Hz"
+		
+endchoice
+
+choice
+	prompt "Back-to-Sleep ODR"
+	depends on KX134_BTSI1 || KX134_BTSI2
+	default KX134_OBTS_ODR_0HZ781
+	
+	config KX134_OBTS_ODR_0HZ781
+		bool "0.781 Hz"
+	
+	config KX134_OBTS_ODR_1HZ563
+		bool "1.563 Hz"
+		
+	config KX134_OBTS_ODR_3HZ125
+		bool "3.125 Hz"
+	
+	config KX134_OBTS_ODR_6HZ25
+		bool "6.25 Hz"
+		
+	config KX134_OBTS_ODR_12HZ5
+		bool "12.5 Hz"
+	
+	config KX134_OBTS_ODR_25HZ
+		bool "25 Hz"
+		
+	config KX134_OBTS_ODR_50HZ
+		bool "50 Hz"
+	
+	config KX134_OBTS_ODR_100HZ
+		bool "100 Hz"
+		
+endchoice
+
+config KX134_TH_MODE
+	bool "Wake/sleep threshold mode (n: absolute, y: relative)"
+	depends on KX134_WUFI1 || KX134_WUFI2 || KX134_BTSI1 || KX134_BTSI2
+	
+config KX134_WUFTH
+	int "Wake-Up Function Threshold"
+	depends on KX134_WUFI1 || KX134_WUFI2
+	default 32
+	range 0 1024
+	help
+		WUFTH (counts) = Wake-Up Threshold (g) x 64 (counts/g)
+		
+config KX134_WUFC
+	int "Wake-Up Debounce Counter"
+	depends on KX134_WUFI1 || KX134_WUFI2
+	default 0
+	range 0 255
+	help
+		WUFC (counts) = Wake-Up Delay Time (sec) x Wake-up Function ODR (Hz)
+		
+config KX134_BTSTH
+	int "Back-to-Sleep Function Threshold"
+	depends on KX134_BTSI1 || KX134_BTSI2
+	default 32
+	range 0 1024
+	help
+		BTSTH (counts) = Back-to-Sleep Threshold (g) x 64 (counts/g)
+		
+config KX134_BTSC
+	int "Back-to-Sleep Debounce Counter"
+	depends on KX134_BTSI1 || KX134_BTSI2
+	default 0
+	range 0 255
+	help
+		BTSC (counts) = Back-to-Sleep Delay Time (sec) x Back-to-Sleep Function ODR (Hz)
+		
+choice
+	prompt "Tap/Double-Tap ODR"
+	depends on KX134_TDTI1 || KX134_TDTI2
+	default KX134_TDTE_ODR_400HZ
+	
+	config KX134_TDTE_ODR_12HZ5
+		bool "12.5 Hz"
+	
+	config KX134_TDTE_ODR_25HZ
+		bool "25 Hz"
+		
+	config KX134_TDTE_ODR_50HZ
+		bool "50 Hz"
+	
+	config KX134_TDTE_ODR_100HZ
+		bool "100 Hz"
+		
+	config KX134_TDTE_ODR_200HZ
+		bool "200 Hz"
+	
+	config KX134_TDTE_ODR_400HZ
+		bool "400 Hz"
+		
+	config KX134_TDTE_ODR_800HZ
+		bool "800 Hz"
+	
+	config KX134_TDTE_ODR_1600HZ
+		bool "1600 Hz"
+		
+endchoice
+
+config KX134_DTRE
+	bool "Double-Tap Interrupt"
+	depends on KX134_TDTI1 || KX134_TDTI2
+
+config KX134_STRE
+	bool "Single-Tap Interrupt"
+	depends on KX134_TDTI1 || KX134_TDTI2
+	
+config KX134_TDTC
+	int "Minimum time between taps"
+	depends on KX134_DTRE
+	default 120
+	range 0 255
+	help
+		This register contains counter information for the 
+		detection of a double tap event. When ODR is 400Hz or less, 
+		every count is calculated as 1/ODR delay period. 800Hz, 2/ODR. 
+		1600Hz, 4/ODR. The TDTC counts starts at the beginning 
+		of the fist tap and it represents the minimum time separation 
+		between the first tap and the second tap in a double tap event. 
+		More specifically, the second tap event must end outside of the TDTC.
+	  
+config KX134_TTH
+	int "Tap threshold high"
+	depends on KX134_DTRE || KX134_STRE
+	default 51
+	range 0 255
+	help
+		The Tap Threshold High (TTH) register represents the 8-bit jerk high threshold 
+		to determine if a tap is detected. The value is compared against the upper 8 bits 
+		of the 16g output value (independent of the actual g-range setting of the device). 
+		Though this is an 8-bit register, the register value is internally multiplied by 
+		two to set the high threshold. This multiplication results in a range of 0 to 510 
+		with a resolution of two counts. The Performance Index (PI) is the jerk signal that 
+		is expected to be less than this threshold, but greater than the TTL threshold 
+		during single and double tap events.
+		    X’ = X (current) – X (previous)
+		    Y’ = Y (current) – Y (previous)
+		    Z’ = Z (current) – Z (previous)
+		    PI = |X’| + |Y’| + |Z’|
+
+config KX134_TTL
+	int "Tap threshold low"
+	depends on KX134_DTRE || KX134_STRE
+	default 7
+	range 0 255
+	help
+		The Tap Threshold Low (TTL) register represents the 8-bit (0-255) jerk low 
+		threshold to determine if a tap is detected. The value is compared against the 
+		upper 8 bits of the 16g output value (independent of the actual g-range setting 
+		of the device). The Performance Index (PI) is the jerk signal that is expected 
+		to be greater than this threshold and less than the TTH threshold during single 
+		and double tap events.
+		
+config KX134_FTD
+	int "Tap timing"
+	depends on KX134_DTRE || KX134_STRE
+	default 162
+	range 0 255
+	help
+		This register contains counter information for the detection of any tap event. 
+		When the ODR is 400Hz or less, every count is calculated as	1/ODR delay period. 
+		When the ODR is 800Hz, every count is calculated as 2/ODR delay period. 
+		When the ODR is 1600Hz, every count is calculated as 4/ODR delay period. 
+		To ensure that only tap events are detected, these time limits are used. A tap 
+		event must be above the performance index threshold for at least the low limit 
+		(Bits 0 – 2) and no more than the high limit (Bits 0 – 4).
+		
+config KX134_STD
+	int "Double Tap timing"
+	depends on KX134_DTRE
+	default 36
+	range 0 255
+	help
+		This register contains counter information for the detection of a double tap event. 
+		When the ODR is 400Hz or less, every count is calculated as	1/ODR delay period. 
+		When the ODR is 800Hz, every count is calculated as 2/ODR delay period. 
+		When the ODR is 1600Hz, every count is calculated as 4/ODR delay period. 
+		To ensure that only tap events are detected, these time limits are used. This 
+		register sets the total amount of time that the two taps in a double tap event 
+		can be above the PI threshold (TTL).
+		
+config KX134_TLT
+	int "Tap/Double-Tap Latency Timer"
+	depends on KX134_DTRE || KX134_STRE
+	default 40
+	range 0 255
+	help
+		This register contains counter information for the detection of a tap event. 
+		When the ODR is 400Hz or less, every count is calculated as 1/ODR delay period. 
+		When the ODR is 800Hz, every count is calculated as 2/ODR delay period. 
+		When the ODR is 1600Hz, every count is calculated as 4/ODR delay period. 
+		To ensure that only tap events are detected, this time limit is used. This register 
+		sets the total amount of time that the tap algorithm will count samples that are 
+		above the PI threshold (TTL) during a potential tap event. It is used during both 
+		single and double tap events. However, reporting of single taps on the physical 
+		interrupt pin INT1 or INT2 will occur at the end of the TWS.
+
+config KX134_TWS
+	int "Tap/Double-Tap Time Window"
+	depends on KX134_DTRE || KX134_STRE
+	default 160
+	range 0 255
+	help
+		This register contains counter information for the detection of single and double taps. 
+		When the ODR is 400Hz or less, every count is calculated as 1/ODR delay period. 
+		When the ODR is 800Hz, every count is calculated as 2/ODR delay period. 
+		When the ODR is 1600Hz, every count is calculated as 4/ODR delay period. 
+		It defines the time window for the entire tap event, single or double, to occur. 
+		Reporting of single taps on the physical interrupt pin INT1 or INT2 will occur at the 
+		end of this tap window.
+
+		
+if KX134_TPI1 || KX134_TPI2
+	config KX134_TILT_AXIS_LEM
+		bool "Left State Enable (X-)"
+		
+	config KX134_TILT_AXIS_RIM
+		bool "Right State Enable (X+)"
+		
+	config KX134_TILT_AXIS_DOM
+		bool "Down State Enable (Y-)"
+		
+	config KX134_TILT_AXIS_UPM
+		bool "Up State Enable (Y+)"
+		
+	config KX134_TILT_AXIS_FDM
+		bool "Face-Down State Enable (Z-)"
+		
+	config KX134_TILT_AXIS_FUM
+		bool "Face-Up State Enable (Z+)"
+		
+endif
+
+choice
+	prompt "Tilt Position ODR"
+	depends on KX134_TPI1 || KX134_TPI2
+	default KX134_TILT_ODR_12HZ5
+	
+	config KX134_TILT_ODR_1HZ563
+		bool "1.563 Hz"
+	
+	config KX134_TILT_ODR_6HZ25
+		bool "6.25 Hz"
+		
+	config KX134_TILT_ODR_12HZ5
+		bool "12.5 Hz"
+	
+	config KX134_TILT_ODR_50HZ
+		bool "50 Hz"
+		
+endchoice
+
+config KX134_TILT_TIMER
+	int "Tilt Position State Timer"
+	depends on KX134_TPI1 || KX134_TPI2
+	default 0
+	range 0 255
+	help
+		Initial count register for the tilt position state timer. 
+		Every count is calculated as 1/ODR delay period. The sensor 
+		must remain for the duration of the timer count in the new 
+		tilt position before the change is accepted.
+		
+config KX134_TILT_ANGLE_LL
+	int "Tilt Angle Low Limit"
+	depends on KX134_TPI1 || KX134_TPI2
+	default 3
+	range 0 255
+	help
+		Tilt Angle Low Limit: This register sets the low-level threshold 
+		for tilt angle detection. The low-level threshold value is compared 
+		against the upper 8 bits of the 16g output value (independent of 
+		the actual g-range setting of the device). Note that the 
+		minimum suggested tilt angle is 10°.
+		
+config KX134_TILT_ANGLE_HL
+	int "Tilt Angle High Limit"
+	depends on KX134_TPI1 || KX134_TPI2
+	default 11
+	range 0 255
+	help
+		Tilt Angle High Limit: This register sets the high-level threshold 
+		for tilt angle detection. The high-level threshold is used by an internal 
+		algorithm to eliminate dynamic g-variations caused by the device movement. 
+		Instead, only static g-variation (gravity) caused by the actual tilt 
+		changes are used. The high-level threshold value is compared against the 
+		upper 8 bits of the 16g output value (independent of the actual g-range 
+		setting of the device). The default tilt angle high level threshold is set 
+		to just above 1g plus some margin of error to account for external factors 
+		(e.g. device mounting).
+		
+config KX134_HYST_SET
+	int "Tilt Angle Hysteresis"
+	depends on KX134_TPI1 || KX134_TPI2
+	default 20
+	range 0 255
+	help
+		Hysteresis Setting: This register sets the hysteresis that is placed in 
+		between the Screen Rotation states. The KX134-1211 ships from the factory 
+		with HYST_SET set to ±15° of hysteresis.
+		
+	
+menuconfig KX134_ADPE
+	bool "Advanced Data Path"
+		
+if KX134_ADPE
+
+choice
+	prompt "Accelerometer sampling frequency (ODR)"
+	depends on KX134_HIGH_PERF_MODE
+	default KX134_OADP_0HZ781
+
+	config KX134_OADP_0HZ781
+		bool "0.781 Hz"
+
+	config KX134_OADP_1HZ563
+		bool "1.563 Hz"
+
+	config KX134_OADP_3HZ125
+		bool "3.125 Hz"
+
+	config KX134_OADP_6HZ25
+		bool "6.25 Hz"
+
+	config KX134_OADP_12HZ5
+		bool "12.5 Hz"
+		
+	config KX134_OADP_25HZ
+		bool "25 Hz"
+
+	config KX134_OADP_50HZ
+		bool "50 Hz"
+
+	config KX134_OADP_100HZ
+		bool "100 Hz"
+
+	config KX134_OADP_200HZ
+		bool "200 Hz"
+
+	config KX134_OADP_400HZ
+		bool "400 Hz"
+
+	config KX134_OADP_800HZ
+		bool "800 Hz"
+
+	config KX134_OADP_1600HZ
+		bool "1600 Hz"
+		
+	config KX134_OADP_3200HZ
+		bool "3200 Hz"
+
+	config KX134_OADP_6400HZ
+		bool "6400 Hz"
+
+	config KX134_OADP_12800HZ
+		bool "12800 Hz"
+
+	config KX134_OADP_25600HZ
+		bool "25600 Hz"
+		
+endchoice
+
+config KX134_ADP_BUF_SEL
+	bool "Select data to be routed to the sample buffer"
+	
+config KX134_ADP_WB_ISEL
+	bool "Input select for the Wake-up/Back-to-Sleep engines"
+	
+config KX134_RMS_WB_OSEL
+	bool "RMS select data for the Wake-up/Back-to-Sleep engines"
+	
+config KX134_ADP_FLT2_BYP
+	bool "Advanced Data Path Filter-2 bypass control"
+	
+config KX134_ADP_FLT1_BYP
+	bool "Advanced Data Path Filter-1 bypass control"
+	
+config KX134_ADP_F2_HP
+	bool "Filter-2 High-pass enable"
+
+config KX134_ADP_RMS_OSEL
+	bool "Select RMS Output"
+	
+choice
+	prompt "RMS Output Sample Size"
+	depends on KX134_ADP_RMS_OSEL
+	default KX134_ADP_RMS_AVC_2SAMP
+	
+	config KX134_ADP_RMS_AVC_2SAMP
+		bool "2 Samples"
+	
+	config KX134_ADP_RMS_AVC_4SAMP
+		bool "4 Samples"
+		
+	config KX134_ADP_RMS_AVC_8SAMP
+		bool "8 Samples"
+	
+	config KX134_ADP_RMS_AVC_16SAMP
+		bool "16 Samples"
+		
+	config KX134_ADP_RMS_AVC_32SAMP
+		bool "32 Samples"
+	
+	config KX134_ADP_RMS_AVC_64SAMP
+		bool "64 Samples"
+		
+	config KX134_ADP_RMS_AVC_128SAMP
+		bool "128 Samples"
+	
+	config KX134_ADP_RMS_AVC_256SAMP
+		bool "256 Samples"
+		
+endchoice
+
+config KX134_ADP_F1_1A
+	int "ADP filter-1 coefficient (1/A)"
+	default 0
+	range 0 128
+
+config KX134_ADP_F1_BA
+	int "ADP filter-1 coefficient (B/A)"
+	default 0
+	range 0 8388608
+	
+config KX134_ADP_F1_CA
+	int "ADP filter-1 coefficient (C/A)"
+	default 0
+	range 0 8388608
+	
+config KX134_ADP_F1_ISH
+	int "ADP filter-1 input scale shift value"
+	default 0
+	range 0 32
+	
+config KX134_ADP_F1_OSH
+	int "ADP filter-1 output scale shift value"
+	default 0
+	range 0 1
+	
+config KX134_ADP_F2_1A
+	int "ADP filter-1 coefficient (1/A)"
+	default 0
+	range 0 128
+	
+config KX134_ADP_F2_BA
+	int "ADP filter-2 coefficient (B/A)"
+	default 0
+	range 0 32768
+	
+config KX134_ADP_F2_ISH
+	int "ADP filter-2 input scale shift value"
+	default 0
+	range 0 32
+	
+config KX134_ADP_F2_OSH
+	int "ADP filter-2 output scale shift value"
+	default 0
+	range 0 32
+	
+endif # KX134_ADPE
+
+choice
+	prompt "Trigger mode"
+	default KX134_TRIGGER_NONE
+	help
+	  Specify the type of triggering used by the driver.
+
+config KX134_TRIGGER_NONE
+	bool "No trigger"
+
+config KX134_TRIGGER_GLOBAL_THREAD
+	bool "Use global thread"
+	depends on GPIO
+	select KX134_TRIGGER
+
+config KX134_TRIGGER_OWN_THREAD
+	bool "Use own thread"
+	depends on GPIO
+	select KX134_TRIGGER
+
+endchoice
+
+config KX134_TRIGGER
+	bool
+
+config KX134_THREAD_PRIORITY
+	int "Thread priority"
+	depends on KX134_TRIGGER_OWN_THREAD && KX134_TRIGGER
+	default 10
+	help
+		Priority of thread used by the driver to handle interrupts.
+
+config KX134_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on KX134_TRIGGER_OWN_THREAD && KX134_TRIGGER
+	default 1024
+	help
+		Stack size of thread used by the driver to handle interrupts.
+
+endif # KX134

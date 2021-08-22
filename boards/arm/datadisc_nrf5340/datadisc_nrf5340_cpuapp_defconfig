@@ -1,0 +1,21 @@
+# Copyright (c) 2021 Griffin Adams
+# SPDX-License-Identifier: Apache-2.0
+
+CONFIG_SOC_SERIES_NRF53X=y
+CONFIG_SOC_NRF5340_CPUAPP_QKAA=y
+CONFIG_BOARD_DATADISC_NRF5340_CPUAPP=y
+
+# Enable MPU
+CONFIG_ARM_MPU=y
+
+# Enable hardware stack protection
+CONFIG_HW_STACK_PROTECTION=y
+
+# Enable TrustZone-M
+CONFIG_ARM_TRUSTZONE_M=y
+
+# configure internal caps
+CONFIG_SOC_LFXO_CAP_INT_6PF=y
+
+CONFIG_SOC_HFXO_CAP_INTERNAL=y
+CONFIG_SOC_HFXO_CAP_INT_VALUE_X2=32

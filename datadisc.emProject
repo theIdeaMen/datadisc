@@ -1,0 +1,49 @@
+<!DOCTYPE CrossStudio_Project_File>
+<solution
+  Name="minimal"
+  board_directory="C:\Users\Griffin\ncs\v1.5.1\zephyr\boards\arm\datadisc_nrf5340"
+  board_name="datadisc_nrf5340_cpuapp"
+  build_directory="C:\Users\Griffin\ncs\v1.5.1\zephyr\samples\basic\minimal\build_datadisc_nrf5340_cpuapp"
+  cmake_command="C:/Users/Griffin/ncs/v1.5.1/toolchain/opt/bin/cmake.exe"
+  cmakelists_end_section="# NORDIC SDK APP END"
+  cmakelists_file_name="C:\Users\Griffin\ncs\v1.5.1\zephyr\samples\basic\minimal/CMakeLists.txt"
+  cmakelists_project="minimal;build;app/libapp.a"
+  cmakelists_start_section="# NORDIC SDK APP START"
+  dts_compiled_file_name="C:\Users\Griffin\ncs\v1.5.1\zephyr\samples\basic\minimal\build_datadisc_nrf5340_cpuapp/zephyr/datadisc_nrf5340_cpuapp.dts_compiled"
+  dts_folder="dts files"
+  dts_overlay_file_name="C:\Users\Griffin\ncs\v1.5.1\zephyr\samples\basic\minimal/datadisc_nrf5340_cpuapp.overlay"
+  gnuarmemb_toolchain_directory="C:\Users\Griffin\ncs\v1.5.1\toolchain\opt"
+  source_directory="C:\Users\Griffin\ncs\v1.5.1\zephyr"
+  target="8"
+  version="2">
+  <configuration
+    Name="Common"
+    arm_architecture="v8M_Mainline"
+    arm_core_type="Cortex-M33"
+    arm_fpu_type="FPv5-SP-D16"
+    arm_target_device_name="nRF5340_xxAA_APP"
+    arm_target_interface_type="SWD"
+    arm_v8M_has_cmse="Yes"
+    arm_v8M_has_dsp="Yes"
+    build_toolchain_directory="C:\Users\Griffin\ncs\v1.5.1\toolchain\opt/bin"
+    debug_register_definition_file="$(PackagesDir)/nRF/Device/Registers/nrf5340_application.svd"
+    debug_target_connection="J-Link"
+    external_archive_command="&quot;$(StudioDir)/bin/rm&quot; -f &quot;$(RelTargetPath)&quot; &amp;&amp; &quot;$(ToolChainDir)/arm-none-eabi-ar&quot; -rcs &quot;$(RelTargetPath)&quot; $(Objects)"
+    external_assemble_command="&quot;$(ToolChainDir)/arm-none-eabi-gcc&quot; $(AsmOptions) -MD -MF &quot;$(RelDependencyPath)&quot; -o &quot;$(RelTargetPath)&quot; -c &quot;$(RelInputPath)&quot;"
+    external_c_compile_command="&quot;$(ToolChainDir)/arm-none-eabi-gcc&quot; $(COnlyOptions) -MD -MF &quot;$(RelDependencyPath)&quot; -fno-diagnostics-show-caret -o &quot;$(RelTargetPath)&quot; -c &quot;$(RelInputPath)&quot;"
+    external_cpp_compile_command="&quot;$(ToolChainDir)/arm-none-eabi-gcc&quot; $(CppOnlyOptions) -MD -MF &quot;$(RelDependencyPath)&quot; -fno-diagnostics-show-caret -o &quot;$(RelTargetPath)&quot; -c &quot;$(RelInputPath)&quot;"
+    external_link_command="&quot;$(ToolChainDir)/arm-none-eabi-gcc&quot; $(Objects) $(LinkOptions) -o &quot;$(RelTargetPath)&quot;"
+    linker_section_placements_segments="FLASH RX 0x00000000 0x00100000;RAM RWX 0x20000000 0x00080000"
+    properties_filter="Debug"
+    source_code_control_directory="C:\Users\Griffin\ncs\v1.5.1\zephyr" />
+  <folder
+    Name="dts files"
+    filter="datadisc_nrf5340_cpuapp.overlay"
+    path="C:\Users\Griffin\ncs\v1.5.1\zephyr\samples\basic\minimal">
+    <configuration
+      Name="Common"
+      c_system_include_directories="C:\Users\Griffin\ncs\v1.5.1\zephyr/include;C:\Users\Griffin\ncs\v1.5.1\zephyr/dts/arm;C:\Users\Griffin\ncs\v1.5.1\zephyr/dts"
+      c_user_include_directories="C:\Users\Griffin\ncs\v1.5.1\zephyr/dts/common" />
+  </folder>
+  <import file_name="build.emProject" can_modify_solution="No" />
+</solution>

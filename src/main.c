@@ -1,0 +1,536 @@
+/*
+ * Copyright (c) 2021 Griffin Adams
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <device.h>
+#include <errno.h>
+#include <zephyr.h>
+
+#include <SEGGER_RTT.h>
+#include <logging/log.h>
+#include <logging/log_ctrl.h>
+#include <sys/printk.h>
+#include <sys/util.h>
+
+#include <fs/fs.h>
+#include <fs/littlefs.h>
+#include <storage/flash_map.h>
+
+#include <drivers/flash.h>
+#include <drivers/gpio.h>
+#include <drivers/pwm.h>
+#include <drivers/sensor.h>
+
+//#include <settings/settings.h>
+
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/conn.h>
+#include <bluetooth/gatt.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/services/bas.h>
+#include <bluetooth/uuid.h>
+
+#include "battery.h"
+#include "kx134.h"
+
+LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
+
+/* size of stack area used by each thread */
+#define STACKSIZE 1024
+
+/* scheduling priority used by each thread */
+#define PRIORITY 7
+
+/* delay for each thread to allow inits */
+#define TDELAY 100
+
+/***************************************************************
+*   Global Variables
+*
+****************************************************************/
+typedef enum {
+  IDLE,
+  LOG,
+  ERASE,
+  DUMP,
+  SLEEP
+} Machine_State;
+Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
+
+/** A discharge curve specific to the power source. */
+// TODO measure DataDisc battery curve
+static const struct battery_level_point levels[] = {
+#if DT_NODE_HAS_PROP(DT_INST(0, voltage_divider), io_channels)
+    /* "Curve" here eyeballed from captured data for the [Adafruit
+	 * 3.7v 2000 mAh](https://www.adafruit.com/product/2011) LIPO
+	 * under full load that started with a charge of 3.96 V and
+	 * dropped about linearly to 3.58 V over 15 hours.  It then
+	 * dropped rapidly to 3.10 V over one hour, at which point it
+	 * stopped transmitting.
+	 *
+	 * Based on eyeball comparisons we'll say that 15/16 of life
+	 * goes between 3.95 and 3.55 V, and 1/16 goes between 3.55 V
+	 * and 3.1 V.
+	 */
+
+    {10000, 3950},
+    {625, 3550},
+    {0, 3100},
+#else
+    /* Linear from maximum voltage to minimum voltage. */
+    {10000, 3600},
+    {0, 1700},
+#endif
+};
+
+unsigned int soc_percent = 0;
+
+/* Thread FIFOs */
+K_FIFO_DEFINE(accel_fifo);
+K_FIFO_DEFINE(datalog_fifo);
+
+struct accel_fifo_item_t {
+  void *fifo_reserved; /* 1st word reserved for use by FIFO */
+  uint8_t id;
+  uint32_t timestamp;
+  struct kx134_xyz_accel_data *data;
+};
+
+struct datalog_fifo_item_t {
+  void *fifo_reserved; /* 1st word reserved for use by FIFO */
+  uint8_t id;
+  uint32_t timestamp;
+  void *data;
+};
+
+/***************************************************************
+*   Bluetooth Functions
+*
+****************************************************************/
+#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
+#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+
+// Set Advertisement data.
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+};
+
+// Set Scan Response data
+static const struct bt_data sd[] = {
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
+
+static void bt_ready(void) {
+  int err;
+
+  printk("Bluetooth initialized\n");
+
+  if (IS_ENABLED(CONFIG_SETTINGS)) {
+    settings_load();
+  }
+
+  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+  if (err) {
+    printk("Advertising failed to start (err %d)\n", err);
+    return;
+  }
+
+  printk("Advertising successfully started\n");
+}
+
+/***************************************************************
+*   Utility Functions
+*
+****************************************************************/
+
+static void wait_on_log_flushed(void) {
+  while (log_buffered_cnt()) {
+    k_sleep(K_MSEC(5));
+  }
+}
+
+static const char *now_str(void) {
+  static char buf[16]; /* ...HH:MM:SS.MMM */
+  uint32_t now = k_uptime_get();
+  unsigned int ms = now % MSEC_PER_SEC;
+  unsigned int s;
+  unsigned int min;
+  unsigned int h;
+
+  now /= MSEC_PER_SEC;
+  s = now % 60U;
+  now /= 60U;
+  min = now % 60U;
+  now /= 60U;
+  h = now;
+
+  snprintf(buf, sizeof(buf), "%u:%02u:%02u.%03u", h, min, s, ms);
+  return buf;
+}
+
+/***************************************************************
+*   Main
+*
+****************************************************************/
+void main(void) {
+
+  int err;
+  struct device *dev;
+
+  SEGGER_RTT_Init();
+
+  printk("Starting DataDisc v2\n");
+
+  // Initialize the Bluetooth Subsystem
+  //err = bt_enable(NULL);
+  //if (err) {
+  //  printk("Bluetooth init failed (err %d)\n", err);
+  //  return;
+  //}
+
+  //bt_ready();
+
+  //dev = device_get_binding("GPIO_0");
+
+  //err = gpio_pin_configure(dev, 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+  //if (err < 0) {
+  //        return;
+  //}
+
+  // Main loop
+  while (1) {
+
+    /* Battery level */
+    //bt_bas_set_battery_level(soc_percent);
+
+    //gpio_pin_toggle(dev, 10);
+
+    k_msleep(2000);
+  }
+}
+
+/***************************************************************
+*   Threads
+*
+****************************************************************/
+/* Battery check */
+void batt_check_thread(void) {
+
+  int off_time; // turn off divider to save power (ms)
+
+  while (1) {
+    switch (datadisc_state) {
+    case LOG:
+      off_time = 700;
+      break;
+
+    default: // TODO: decide on times for other states
+      off_time = 2700;
+      break;
+    }
+
+    battery_measure_enable(true);
+
+    k_msleep(300);
+    int batt_mV = battery_sample();
+
+    battery_measure_enable(false);
+
+    if (batt_mV < 0) {
+      printk("Failed to read battery voltage: %d\n", batt_mV);
+    }
+
+    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
+
+    printk("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
+
+    soc_percent = batt_pptt / 100;
+
+    k_msleep(off_time);
+  }
+}
+
+K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+/* LED Control */
+#define PWM_LED0_NODE DT_ALIAS(pwm_led0)
+
+#if DT_NODE_HAS_STATUS(PWM_LED0_NODE, okay)
+#define PWM_CTLR DT_PWMS_CTLR(PWM_LED0_NODE)
+#define PWM_CHANNEL DT_PWMS_CHANNEL(PWM_LED0_NODE)
+#define PWM_FLAGS DT_PWMS_FLAGS(PWM_LED0_NODE)
+#define PWM_NAME DT_LABEL(PWM_LED0_NODE)
+#else
+#error "Unsupported board: pwm-led0 devicetree alias is not defined"
+#define PWM_CTLR DT_INVALID_NODE
+#define PWM_CHANNEL 0
+#define PWM_FLAGS 0
+#endif
+
+#define MAX_BRIGHTNESS 75
+
+#define FADE_DELAY 8
+
+#define MIN_PERIOD_USEC (USEC_PER_SEC / 64U)
+#define MAX_PERIOD_USEC USEC_PER_SEC
+
+void led_control_thread(void) {
+
+  const struct device *pwm;
+  int err;
+  uint16_t level;
+
+  pwm = DEVICE_DT_GET(PWM_CTLR);
+  if (pwm) {
+    LOG_INF("Found device %s", PWM_NAME);
+  } else {
+    LOG_ERR("Device %s not found", PWM_NAME);
+    return;
+  }
+
+  while (1) {
+
+    switch (datadisc_state) {
+    case LOG:
+      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
+        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
+        if (err < 0) {
+          LOG_ERR("err=%d brightness=%d", err, level);
+          return;
+        }
+        k_msleep(FADE_DELAY);
+      }
+      k_msleep(1000);
+      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
+        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * (MAX_BRIGHTNESS - level)) / 100U, PWM_FLAGS);
+        if (err < 0) {
+          LOG_ERR("err=%d brightness=%d", err, (MAX_BRIGHTNESS - level));
+          return;
+        }
+        k_msleep(FADE_DELAY);
+      }
+      k_msleep(1000);
+      break;
+
+    default: // TODO: decide on times for other states
+
+      break;
+    }
+  }
+}
+
+K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+/* Accelerometers */
+#define ACCEL_ALPHA_DEVICE DT_LABEL(DT_INST(0, kionix_kx134_1211))
+#define ACCEL_BETA_DEVICE DT_LABEL(DT_INST(1, kionix_kx134_1211))
+
+/* Unique IDs to carry into CSV */
+#define ACCEL_ALPHA_ID  0x1A;
+#define ACCEL_BETA_ID   0x2B;
+
+K_SEM_DEFINE(sem_a, 0, 1);
+K_SEM_DEFINE(sem_b, 0, 1);
+
+static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+  ARG_UNUSED(trigger);
+
+  if (sensor_sample_fetch(dev)) {
+    printf("sensor_sample_fetch failed\n");
+    return;
+  }
+
+  k_sem_give(&sem_a);
+}
+
+void accel_alpha_thread(void) {
+
+  struct sensor_value accel[3];
+  struct accel_fifo_item_t fifo_item;
+  const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
+
+  if (!dev) {
+    printf("Devicetree has no kionix,kx134-1211 node\n");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    printf("Device %s is not ready\n", dev->name);
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = SENSOR_TRIG_DATA_READY,
+      .chan = SENSOR_CHAN_ACCEL_XYZ,
+  };
+
+  if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+    if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
+      printf("Could not set trigger\n");
+      return;
+    }
+  }
+
+  struct kx134_xyz_accel_data fifo_data; 
+  fifo_item.id = ACCEL_ALPHA_ID;
+
+  while (1) {
+    if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+      k_sem_take(&sem_a, K_FOREVER);
+    } else {
+      if (sensor_sample_fetch(dev)) {
+        printf("sensor_sample_fetch failed\n");
+      }
+    }
+
+    fifo_item.timestamp = k_uptime_get();
+
+    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, accel);
+
+    //printk("x: %d.%06d; y: %d.%06d; z: %d.%06d\n",
+    //    accel[0].val1, accel[0].val2, accel[1].val1, accel[1].val2,
+    //    accel[2].val1, accel[2].val2);
+
+    fifo_data.x = (float)sensor_value_to_double(&accel[0]);
+    fifo_data.y = (float)sensor_value_to_double(&accel[1]);
+    fifo_data.z = (float)sensor_value_to_double(&accel[2]);
+
+    fifo_item.data = &fifo_data;
+
+    k_fifo_put(&accel_fifo, &fifo_item);
+
+    if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+      k_sleep(K_MSEC(2000));
+    }
+  }
+}
+
+K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+  ARG_UNUSED(trigger);
+
+  if (sensor_sample_fetch(dev)) {
+    printf("sensor_sample_fetch failed\n");
+    return;
+  }
+
+  k_sem_give(&sem_b);
+}
+
+void accel_beta_thread(void) {
+
+  struct sensor_value accel[3];
+  struct accel_fifo_item_t fifo_item;
+  const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
+
+  if (!dev) {
+    printf("Devicetree has no kionix,kx134-1211 node\n");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    printf("Device %s is not ready\n", dev->name);
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = SENSOR_TRIG_DATA_READY,
+      .chan = SENSOR_CHAN_ACCEL_XYZ,
+  };
+
+  if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+    if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
+      printf("Could not set trigger\n");
+      return;
+    }
+  }
+
+  struct kx134_xyz_accel_data fifo_data; 
+  fifo_item.id = ACCEL_BETA_ID;
+
+  while (1) {
+    if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+      k_sem_take(&sem_b, K_FOREVER);
+    } else {
+      if (sensor_sample_fetch(dev)) {
+        printf("sensor_sample_fetch failed\n");
+      }
+    }
+
+    fifo_item.timestamp = k_uptime_get();
+
+    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, accel);
+
+    //printk("x: %d.%06d; y: %d.%06d; z: %d.%06d\n",
+    //    accel[0].val1, accel[0].val2, accel[1].val1, accel[1].val2,
+    //    accel[2].val1, accel[2].val2);
+
+    fifo_data.x = (float)sensor_value_to_double(&accel[0]);
+    fifo_data.y = (float)sensor_value_to_double(&accel[1]);
+    fifo_data.z = (float)sensor_value_to_double(&accel[2]);
+
+    fifo_item.data = &fifo_data;
+
+    k_fifo_put(&accel_fifo, &fifo_item);
+
+    if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
+      k_sleep(K_MSEC(2000));
+    }
+  }
+}
+
+K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+/* Thread for crunching data during runtime */
+void runtime_compute_thread(void) {
+  struct accel_fifo_item_t *fifo_item;
+
+  // TODO: Accel averaging, spin rate, etc.
+  while (1) {
+    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
+    k_fifo_put(&datalog_fifo, fifo_item);
+  }
+}
+
+K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+
+
+/* Q-SPI FLASH */
+#define FLASH_DEVICE DT_LABEL(DT_INST(0, nordic_qspi_nor))
+
+void spi_flash_thread(void) {
+  const struct device *flash_dev;
+  int err;
+  struct datalog_fifo_item_t *fifo_item;
+
+  flash_dev = device_get_binding(FLASH_DEVICE);
+  if (!flash_dev) {
+    printk("Device %s not found!\n", FLASH_DEVICE);
+    return;
+  }
+
+  while (1) {
+    fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+
+    struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
+
+    printk("[%d] x: %.2f, y: %.2f, z: %.2f (m/s^2)\n", fifo_item->timestamp,
+                                                  fifo_data->x, fifo_data->y, fifo_data->z);
+  }
+}
+
+K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
