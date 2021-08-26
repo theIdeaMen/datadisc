@@ -1063,7 +1063,7 @@ endif # KX134_ADPE
 
 choice
 	prompt "Trigger mode"
-	default KX134_TRIGGER_NONE
+	default KX134_TRIGGER_OWN_THREAD
 	help
 	  Specify the type of triggering used by the driver.
 

@@ -66,16 +66,16 @@ Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
 /* Matches LFS_NAME_MAX */
 #define MAX_PATH_LEN 255
 
-#define PARTITION_NODE DT_NODELABEL(lfs1)
+#define PARTITION_NODE DT_NODELABEL(lfs)
 
 #if DT_NODE_EXISTS(PARTITION_NODE)
 FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
 #else /* PARTITION_NODE */
-FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(lfs_config);
 static struct fs_mount_t lfs_storage_mnt = {
 	.type = FS_LITTLEFS,
-	.fs_data = &storage,
-	.storage_dev = (void *)FLASH_AREA_ID(storage),
+	.fs_data = &lfs_config,
+	.storage_dev = (void *)FLASH_AREA_ID(external_flash),
 	.mnt_point = "/lfs",
 };
 #endif /* PARTITION_NODE */
@@ -327,7 +327,7 @@ void main(void) {
 
   printk("Starting DataDisc v2\n");
 
-  filesystem_init();
+  //filesystem_init();
 
   // Initialize the Bluetooth Subsystem
   //err = bt_enable(NULL);
@@ -398,8 +398,8 @@ void batt_check_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /* LED Control */
@@ -556,8 +556,8 @@ void accel_alpha_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -632,8 +632,8 @@ void accel_beta_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
@@ -646,8 +646,8 @@ void runtime_compute_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
@@ -658,20 +658,26 @@ void spi_flash_thread(void) {
   int err;
   struct datalog_fifo_item_t *fifo_item;
 
-  //flash_dev = device_get_binding(FLASH_DEVICE);
-  //if (!flash_dev) {
-  //  printk("Device %s not found!\n", FLASH_DEVICE);
-  //  return;
-  //}
-
-  while (1) {
-    fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
-
-    struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
-
-    printk("[%d] x: %.2f, y: %.2f, z: %.2f (m/s^2)\n", fifo_item->timestamp,
-                                                  fifo_data->x, fifo_data->y, fifo_data->z);
+  flash_dev = device_get_binding(FLASH_DEVICE);
+  if (!flash_dev) {
+    printk("Device %s not found!\n", FLASH_DEVICE);
+    return;
   }
+  err = flash_erase(flash_dev, 0, 0x00400000);
+  if (err < 0) {
+    printk("Device erase failed!\n");
+    return;
+  }
+
+
+  //while (1) {
+  //  fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+
+  //  struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
+
+  //  printk("[%d] x: %.2f, y: %.2f, z: %.2f (m/s^2)\n", fifo_item->timestamp,
+  //                                                fifo_data->x, fifo_data->y, fifo_data->z);
+  //}
 }
 
 K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
