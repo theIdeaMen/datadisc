@@ -174,14 +174,18 @@
 	at25sl321: at25sl321@0 {
 		compatible = "nordic,qspi-nor";
 		reg = <0>;
-		/* AT25SL321 supports pp, pp2io, pp4io */
-		writeoc = "pp4io";
+		/* AT25SL321 has dif opcode for quad, so we're stuck with pp */
+		writeoc = "pp";
 		/* AT25SL321 supports all readoc options */
-		readoc = "read4io";
+		#readoc = "read4io";
+		#quad-enable-requirements = "S2B1v4";
 		sck-frequency = <25000000>;
 		label = "AT25SL321";
 		jedec-id = [1f 42 16];
 		size = <33554432>;
+		has-dpd;
+		t-enter-dpd = <3000>;
+		t-exit-dpd = <3000>;
 	};
 };
 

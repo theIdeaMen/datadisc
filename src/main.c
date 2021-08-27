@@ -657,18 +657,44 @@ void spi_flash_thread(void) {
   const struct device *flash_dev;
   int err;
   struct datalog_fifo_item_t *fifo_item;
+  uint8_t data[2];
 
-  flash_dev = device_get_binding(FLASH_DEVICE);
-  if (!flash_dev) {
-    printk("Device %s not found!\n", FLASH_DEVICE);
+  struct fs_mount_t *mp =
+#if DT_NODE_EXISTS(PARTITION_NODE)
+      &FS_FSTAB_ENTRY(PARTITION_NODE)
+#else
+      &lfs_storage_mnt
+#endif
+  ;
+  unsigned int id = (uintptr_t)mp->storage_dev;
+  char fname[MAX_PATH_LEN];
+  int rc;
+
+  snprintf(fname, sizeof(fname), "%s/datalog.csv", mp->mnt_point);
+
+  rc = fs_mount(mp);
+  if (rc < 0) {
+    printk("FAIL: mount id %u at %s: %d\n", id, mp->mnt_point, rc);
     return;
   }
-  err = flash_erase(flash_dev, 0, 0x00400000);
-  if (err < 0) {
-    printk("Device erase failed!\n");
-    return;
+  printk("%s mount: %d\n", mp->mnt_point, rc);
+
+  struct fs_file_t file;
+
+  fs_file_t_init(&file);
+
+  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
+  if (rc < 0) {
+    printk("FAIL: open %s: %d\n", fname, rc);
+    goto out;
   }
 
+  snprintf(data, sizeof(data), "33");
+
+  rc = fs_write(&file, data, sizeof(data));
+
+  rc = fs_close(&file);
+  printk("%s close: %d\n", fname, rc);
 
   //while (1) {
   //  fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
@@ -678,6 +704,10 @@ void spi_flash_thread(void) {
   //  printk("[%d] x: %.2f, y: %.2f, z: %.2f (m/s^2)\n", fifo_item->timestamp,
   //                                                fifo_data->x, fifo_data->y, fifo_data->z);
   //}
+
+out:
+  rc = fs_unmount(mp);
+  printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
 K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
