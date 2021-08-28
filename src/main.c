@@ -21,6 +21,7 @@
 #include <fs/fs.h>
 #include <fs/littlefs.h>
 #include <storage/flash_map.h>
+#include <usb/usb_device.h>
 
 #include <drivers/flash.h>
 #include <drivers/gpio.h>
@@ -314,6 +315,109 @@ out:
   printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
+
+
+static int setup_flash(struct fs_mount_t *mnt) {
+  int rc = 0;
+#if CONFIG_DISK_DRIVER_FLASH
+  unsigned int id;
+  const struct flash_area *pfa;
+
+  id = (uintptr_t)mnt->storage_dev;
+
+  rc = flash_area_open(id, &pfa);
+  printk("Area %u at 0x%x on %s for %u bytes\n",
+      id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
+      (unsigned int)pfa->fa_size);
+
+  if (rc < 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
+    printk("Erasing flash area ... ");
+    rc = flash_area_erase(pfa, 0, pfa->fa_size);
+    printk("%d\n", rc);
+  }
+
+  if (rc < 0) {
+    flash_area_close(pfa);
+  }
+#endif
+  return rc;
+}
+
+static void setup_disk(void) {
+  struct fs_mount_t *mp = &lfs_storage_mnt;
+  struct fs_dir_t dir;
+  struct fs_statvfs sbuf;
+  int rc;
+
+  fs_dir_t_init(&dir);
+
+  if (IS_ENABLED(CONFIG_DISK_DRIVER_FLASH)) {
+    rc = setup_flash(mp);
+    if (rc < 0) {
+      LOG_ERR("Failed to setup flash area");
+      return;
+    }
+  }
+
+  if (!IS_ENABLED(CONFIG_FILE_SYSTEM_LITTLEFS) &&
+      !IS_ENABLED(CONFIG_FAT_FILESYSTEM_ELM)) {
+    LOG_INF("No file system selected");
+    return;
+  }
+
+  rc = fs_mount(mp);
+  if (rc < 0) {
+    LOG_ERR("Failed to mount filesystem");
+    return;
+  }
+
+  /* Allow log messages to flush to avoid interleaved output */
+  k_sleep(K_MSEC(50));
+
+  printk("Mount %s: %d\n", lfs_storage_mnt.mnt_point, rc);
+
+  rc = fs_statvfs(mp->mnt_point, &sbuf);
+  if (rc < 0) {
+    printk("FAIL: statvfs: %d\n", rc);
+    return;
+  }
+
+  printk("%s: bsize = %lu ; frsize = %lu ;"
+         " blocks = %lu ; bfree = %lu\n",
+      mp->mnt_point,
+      sbuf.f_bsize, sbuf.f_frsize,
+      sbuf.f_blocks, sbuf.f_bfree);
+
+  rc = fs_opendir(&dir, mp->mnt_point);
+  printk("%s opendir: %d\n", mp->mnt_point, rc);
+
+  if (rc < 0) {
+    LOG_ERR("Failed to open directory");
+  }
+
+  while (rc >= 0) {
+    struct fs_dirent ent = {0};
+
+    rc = fs_readdir(&dir, &ent);
+    if (rc < 0) {
+      LOG_ERR("Failed to read directory entries");
+      break;
+    }
+    if (ent.name[0] == 0) {
+      printk("End of files\n");
+      break;
+    }
+    printk("  %c %u %s\n",
+        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
+        ent.size,
+        ent.name);
+  }
+
+  (void)fs_closedir(&dir);
+
+  return;
+}
+
 /***************************************************************
 *   Main
 *
@@ -328,6 +432,16 @@ void main(void) {
   printk("Starting DataDisc v2\n");
 
   //filesystem_init();
+
+  //setup_disk();
+
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
+
+  LOG_INF("The device is put in USB mass storage mode.\n");
 
   // Initialize the Bluetooth Subsystem
   //err = bt_enable(NULL);
@@ -710,5 +824,5 @@ out:
   printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
