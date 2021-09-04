@@ -8,9 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <zephyr.h>
+#include <kernel.h>
 #include <device.h>
 #include <errno.h>
-#include <zephyr.h>
+#include <zephyr/types.h>
 
 #include <SEGGER_RTT.h>
 #include <logging/log.h>
@@ -42,14 +44,6 @@
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
-/* size of stack area used by each thread */
-#define STACKSIZE 1024
-
-/* scheduling priority used by each thread */
-#define PRIORITY 7
-
-/* delay for each thread to allow inits */
-#define TDELAY 100
 
 /***************************************************************
 *   Global Variables
@@ -64,22 +58,21 @@ typedef enum {
 } Machine_State;
 Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
 
-/* Matches LFS_NAME_MAX */
+
+/* file system things */
 #define MAX_PATH_LEN 255
 
-#define PARTITION_NODE DT_NODELABEL(lfs)
+#if CONFIG_DISK_DRIVER_FLASH
+#include <storage/flash_map.h>
+#endif
 
-#if DT_NODE_EXISTS(PARTITION_NODE)
-FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
-#else /* PARTITION_NODE */
-FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(lfs_config);
-static struct fs_mount_t lfs_storage_mnt = {
-	.type = FS_LITTLEFS,
-	.fs_data = &lfs_config,
-	.storage_dev = (void *)FLASH_AREA_ID(external_flash),
-	.mnt_point = "/lfs",
-};
-#endif /* PARTITION_NODE */
+#if CONFIG_FILE_SYSTEM_LITTLEFS
+#include <fs/littlefs.h>
+FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+#endif
+
+static struct fs_mount_t fs_mnt;
+
 
 /** A discharge curve specific to the power source. */
 // TODO measure DataDisc battery curve
@@ -109,7 +102,17 @@ static const struct battery_level_point levels[] = {
 
 unsigned int soc_percent = 0;
 
-/* Thread FIFOs */
+
+/* Thread things */
+/* size of stack area used by each thread */
+#define STACKSIZE 1024
+
+/* scheduling priority used by each thread */
+#define PRIORITY 7
+
+/* delay for each thread to allow inits */
+#define TDELAY 100
+
 K_FIFO_DEFINE(accel_fifo);
 K_FIFO_DEFINE(datalog_fifo);
 
@@ -126,6 +129,7 @@ struct datalog_fifo_item_t {
   uint32_t timestamp;
   void *data;
 };
+
 
 /***************************************************************
 *   Bluetooth Functions
@@ -192,137 +196,13 @@ static const char *now_str(void) {
   return buf;
 }
 
-void filesystem_init(void) {
-  struct fs_mount_t *mp =
-#if DT_NODE_EXISTS(PARTITION_NODE)
-      &FS_FSTAB_ENTRY(PARTITION_NODE)
-#else
-      &lfs_storage_mnt
-#endif
-      ;
-  unsigned int id = (uintptr_t)mp->storage_dev;
-  char fname[MAX_PATH_LEN];
-  struct fs_statvfs sbuf;
-  const struct flash_area *pfa;
-  int rc;
-
-  snprintf(fname, sizeof(fname), "%s/boot_count", mp->mnt_point);
-
-  rc = flash_area_open(id, &pfa);
-  if (rc < 0) {
-    printk("FAIL: unable to find flash area %u: %d\n",
-        id, rc);
-    return;
-  }
-
-  printk("Area %u at 0x%x on %s for %u bytes\n",
-      id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
-      (unsigned int)pfa->fa_size);
-
-  /* Optional wipe flash contents */
-  if (IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-    printk("Erasing flash area ... ");
-    rc = flash_area_erase(pfa, 0, pfa->fa_size);
-    printk("%d\n", rc);
-  }
-
-  flash_area_close(pfa);
-
-  rc = fs_mount(mp);
-  if (rc < 0) {
-    printk("FAIL: mount id %u at %s: %d\n",
-        (unsigned int)mp->storage_dev, mp->mnt_point,
-        rc);
-    return;
-  }
-  printk("%s mount: %d\n", mp->mnt_point, rc);
-
-  rc = fs_statvfs(mp->mnt_point, &sbuf);
-  if (rc < 0) {
-    printk("FAIL: statvfs: %d\n", rc);
-    goto out;
-  }
-
-  printk("%s: bsize = %lu ; frsize = %lu ;"
-         " blocks = %lu ; bfree = %lu\n",
-      mp->mnt_point,
-      sbuf.f_bsize, sbuf.f_frsize,
-      sbuf.f_blocks, sbuf.f_bfree);
-
-  struct fs_dirent dirent;
-
-  rc = fs_stat(fname, &dirent);
-  printk("%s stat: %d\n", fname, rc);
-  if (rc >= 0) {
-    printk("\tfn '%s' siz %u\n", dirent.name, dirent.size);
-  }
-
-  struct fs_file_t file;
-
-  fs_file_t_init(&file);
-
-  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
-  if (rc < 0) {
-    printk("FAIL: open %s: %d\n", fname, rc);
-    goto out;
-  }
-
-  uint32_t boot_count = 0;
-
-  if (rc >= 0) {
-    rc = fs_read(&file, &boot_count, sizeof(boot_count));
-    printk("%s read count %u: %d\n", fname, boot_count, rc);
-    rc = fs_seek(&file, 0, FS_SEEK_SET);
-    printk("%s seek start: %d\n", fname, rc);
-  }
-
-  boot_count += 1;
-  rc = fs_write(&file, &boot_count, sizeof(boot_count));
-  printk("%s write new boot count %u: %d\n", fname,
-      boot_count, rc);
-
-  rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
-
-  struct fs_dir_t dir;
-
-  fs_dir_t_init(&dir);
-
-  rc = fs_opendir(&dir, mp->mnt_point);
-  printk("%s opendir: %d\n", mp->mnt_point, rc);
-
-  while (rc >= 0) {
-    struct fs_dirent ent = {0};
-
-    rc = fs_readdir(&dir, &ent);
-    if (rc < 0) {
-      break;
-    }
-    if (ent.name[0] == 0) {
-      printk("End of files\n");
-      break;
-    }
-    printk("  %c %u %s\n",
-        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
-        ent.size,
-        ent.name);
-  }
-
-  (void)fs_closedir(&dir);
-
-out:
-  rc = fs_unmount(mp);
-  printk("%s unmount: %d\n", mp->mnt_point, rc);
-}
-
-
-
 static int setup_flash(struct fs_mount_t *mnt) {
   int rc = 0;
 #if CONFIG_DISK_DRIVER_FLASH
   unsigned int id;
   const struct flash_area *pfa;
 
+  mnt->storage_dev = (void *)FLASH_AREA_ID(external_flash);
   id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
@@ -330,7 +210,7 @@ static int setup_flash(struct fs_mount_t *mnt) {
       id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
       (unsigned int)pfa->fa_size);
 
-  if (rc < 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
+  if (rc == 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
     printk("Erasing flash area ... ");
     rc = flash_area_erase(pfa, 0, pfa->fa_size);
     printk("%d\n", rc);
@@ -343,10 +223,37 @@ static int setup_flash(struct fs_mount_t *mnt) {
   return rc;
 }
 
+static int mount_app_fs(struct fs_mount_t *mnt) {
+  int rc;
+
+#if CONFIG_FAT_FILESYSTEM_ELM
+  static FATFS fat_fs;
+
+  mnt->type = FS_FATFS;
+  mnt->fs_data = &fat_fs;
+  if (IS_ENABLED(CONFIG_DISK_DRIVER_RAM)) {
+    mnt->mnt_point = "/RAM:";
+  } else if (IS_ENABLED(CONFIG_DISK_DRIVER_SDMMC)) {
+    mnt->mnt_point = "/SD:";
+  } else {
+    mnt->mnt_point = "/NAND:";
+  }
+
+#elif CONFIG_FILE_SYSTEM_LITTLEFS
+  mnt->type = FS_LITTLEFS;
+  mnt->mnt_point = "/lfs";
+  mnt->fs_data = &storage;
+#endif
+  rc = fs_mount(mnt);
+
+  return rc;
+}
+
 static void setup_disk(void) {
-  struct fs_mount_t *mp = &lfs_storage_mnt;
+  struct fs_mount_t *mp = &fs_mnt;
   struct fs_dir_t dir;
   struct fs_statvfs sbuf;
+  char fname[MAX_PATH_LEN];
   int rc;
 
   fs_dir_t_init(&dir);
@@ -365,7 +272,7 @@ static void setup_disk(void) {
     return;
   }
 
-  rc = fs_mount(mp);
+  rc = mount_app_fs(mp);
   if (rc < 0) {
     LOG_ERR("Failed to mount filesystem");
     return;
@@ -374,7 +281,7 @@ static void setup_disk(void) {
   /* Allow log messages to flush to avoid interleaved output */
   k_sleep(K_MSEC(50));
 
-  printk("Mount %s: %d\n", lfs_storage_mnt.mnt_point, rc);
+  printk("Mount %s: %d\n", fs_mnt.mnt_point, rc);
 
   rc = fs_statvfs(mp->mnt_point, &sbuf);
   if (rc < 0) {
@@ -415,60 +322,36 @@ static void setup_disk(void) {
 
   (void)fs_closedir(&dir);
 
-  return;
-}
+  snprintf(fname, sizeof(fname), "%s/boot_count", mp->mnt_point);
 
-/***************************************************************
-*   Main
-*
-****************************************************************/
-void main(void) {
+  struct fs_file_t file;
 
-  int err;
-  struct device *dev;
+  fs_file_t_init(&file);
 
-  SEGGER_RTT_Init();
-
-  printk("Starting DataDisc v2\n");
-
-  //filesystem_init();
-
-  //setup_disk();
-
-  err = usb_enable(NULL);
-  if (err != 0) {
-    LOG_ERR("Failed to enable USB");
+  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
+  if (rc < 0) {
+    printk("FAIL: open %s: %d\n", fname, rc);
     return;
   }
 
-  LOG_INF("The device is put in USB mass storage mode.\n");
+  uint32_t boot_count = 0;
 
-  // Initialize the Bluetooth Subsystem
-  //err = bt_enable(NULL);
-  //if (err) {
-  //  printk("Bluetooth init failed (err %d)\n", err);
-  //  return;
-  //}
-
-  //bt_ready();
-
-  //dev = device_get_binding("GPIO_0");
-
-  //err = gpio_pin_configure(dev, 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
-  //if (err < 0) {
-  //        return;
-  //}
-
-  // Main loop
-  while (1) {
-
-    /* Battery level */
-    //bt_bas_set_battery_level(soc_percent);
-
-    //gpio_pin_toggle(dev, 10);
-
-    k_msleep(2000);
+  if (rc >= 0) {
+    rc = fs_read(&file, &boot_count, sizeof(boot_count));
+    printk("%s read count %u: %d\n", fname, boot_count, rc);
+    rc = fs_seek(&file, 0, FS_SEEK_SET);
+    printk("%s seek start: %d\n", fname, rc);
   }
+
+  boot_count += 1;
+  rc = fs_write(&file, &boot_count, sizeof(boot_count));
+  printk("%s write new boot count %u: %d\n", fname,
+      boot_count, rc);
+
+  rc = fs_close(&file);
+  printk("%s close: %d\n", fname, rc);
+
+  return;
 }
 
 /***************************************************************
@@ -670,8 +553,8 @@ void accel_alpha_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -746,8 +629,8 @@ void accel_beta_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
@@ -760,38 +643,31 @@ void runtime_compute_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
-#define FLASH_DEVICE DT_LABEL(DT_INST(0, nordic_qspi_nor))
+uint8_t fname[MAX_PATH_LEN];     // Buffer created outside thread to avoid stack overflow
+uint8_t data[MAX_PATH_LEN];   // Buffer created outside thread to avoid stack overflow
+
+uint64_t time_stamp;
 
 void spi_flash_thread(void) {
-  const struct device *flash_dev;
-  int err;
   struct datalog_fifo_item_t *fifo_item;
-  uint8_t data[2];
-
-  struct fs_mount_t *mp =
-#if DT_NODE_EXISTS(PARTITION_NODE)
-      &FS_FSTAB_ENTRY(PARTITION_NODE)
-#else
-      &lfs_storage_mnt
-#endif
-  ;
+  struct fs_mount_t *mp = &fs_mnt;
   unsigned int id = (uintptr_t)mp->storage_dev;
-  char fname[MAX_PATH_LEN];
   int rc;
 
   snprintf(fname, sizeof(fname), "%s/datalog.csv", mp->mnt_point);
 
-  rc = fs_mount(mp);
-  if (rc < 0) {
-    printk("FAIL: mount id %u at %s: %d\n", id, mp->mnt_point, rc);
+  if (!mp->mnt_point) {
+    printk("FAIL: mount id %u at %s\n", id, mp->mnt_point);
     return;
   }
-  printk("%s mount: %d\n", mp->mnt_point, rc);
+  printk("%s mount\n", mp->mnt_point);
+
+  wait_on_log_flushed();
 
   struct fs_file_t file;
 
@@ -803,26 +679,91 @@ void spi_flash_thread(void) {
     goto out;
   }
 
-  snprintf(data, sizeof(data), "33");
+  snprintf(data, sizeof(data), "SOL\n");
 
-  rc = fs_write(&file, data, sizeof(data));
+  rc = fs_write(&file, data, 4);
 
-  rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
+  /* capture initial time stamp */
+  time_stamp = (uint64_t)k_uptime_get();
 
-  //while (1) {
-  //  fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+  while (1) {
+    fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-  //  struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
+    struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
 
-  //  printk("[%d] x: %.2f, y: %.2f, z: %.2f (m/s^2)\n", fifo_item->timestamp,
-  //                                                fifo_data->x, fifo_data->y, fifo_data->z);
-  //}
+    snprintf(data, sizeof(data), "%d,%.2f,%.2f,%.2f\n", fifo_item->timestamp,
+                                  fifo_data->x, fifo_data->y, fifo_data->z);
+
+    rc = fs_write(&file, data, strlen(data));
+    if (rc < 0) {
+      printk("FAIL: write %s: %d\n", fname, rc);
+      goto out;
+    }
+
+    if ((uint64_t)k_uptime_get() - time_stamp > 10000) {
+      goto out;
+    }
+  }
 
 out:
+  rc = fs_close(&file);
+  printk("%s close: %d\n", fname, rc);
   rc = fs_unmount(mp);
   printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
-//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+
+
+
+/***************************************************************
+*   Main
+*
+****************************************************************/
+void main(void) {
+
+  int err;
+  struct device *dev;
+
+  SEGGER_RTT_Init();
+
+  printk("Starting DataDisc v2\n");
+
+  setup_disk();
+
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
+
+  LOG_INF("The device is put in USB mass storage mode.\n");
+
+  // Initialize the Bluetooth Subsystem
+  //err = bt_enable(NULL);
+  //if (err) {
+  //  printk("Bluetooth init failed (err %d)\n", err);
+  //  return;
+  //}
+
+  //bt_ready();
+
+  //dev = device_get_binding("GPIO_0");
+
+  //err = gpio_pin_configure(dev, 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+  //if (err < 0) {
+  //        return;
+  //}
+
+  // Main loop
+  while (1) {
+
+    /* Battery level */
+    //bt_bas_set_battery_level(soc_percent);
+
+    //gpio_pin_toggle(dev, 10);
+
+    k_msleep(2000);
+  }
+}
