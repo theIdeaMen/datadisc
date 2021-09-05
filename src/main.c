@@ -12,13 +12,13 @@
 #include <kernel.h>
 #include <device.h>
 #include <errno.h>
-#include <zephyr/types.h>
 
 #include <SEGGER_RTT.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
 #include <sys/printk.h>
 #include <sys/util.h>
+#include <sys/byteorder.h>
 
 #include <fs/fs.h>
 #include <fs/littlefs.h>
@@ -68,7 +68,8 @@ Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
 
 #if CONFIG_FILE_SYSTEM_LITTLEFS
 #include <fs/littlefs.h>
-FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+//FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 #endif
 
 static struct fs_mount_t fs_mnt;
@@ -334,7 +335,7 @@ static void setup_disk(void) {
     return;
   }
 
-  uint32_t boot_count = 0;
+  uint8_t boot_count = 0;
 
   if (rc >= 0) {
     rc = fs_read(&file, &boot_count, sizeof(boot_count));
@@ -679,9 +680,9 @@ void spi_flash_thread(void) {
     goto out;
   }
 
-  snprintf(data, sizeof(data), "SOL\n");
+  //snprintf(data, sizeof(data), "SOL\n");
 
-  rc = fs_write(&file, data, 4);
+  //rc = fs_write(&file, data, 4);
 
   /* capture initial time stamp */
   time_stamp = (uint64_t)k_uptime_get();
@@ -691,8 +692,10 @@ void spi_flash_thread(void) {
 
     struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
 
-    snprintf(data, sizeof(data), "%d,%.2f,%.2f,%.2f\n", fifo_item->timestamp,
+    snprintf(data, sizeof(data), "%d,%d,%d,%d\n", fifo_item->timestamp,
                                   fifo_data->x, fifo_data->y, fifo_data->z);
+
+    printk("Data is: %s, length: %d", data, strlen(data));
 
     rc = fs_write(&file, data, strlen(data));
     if (rc < 0) {
