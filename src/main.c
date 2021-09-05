@@ -20,8 +20,9 @@
 #include <sys/util.h>
 #include <sys/byteorder.h>
 
+#include <ff.h>
 #include <fs/fs.h>
-#include <fs/littlefs.h>
+//#include <fs/littlefs.h>
 #include <storage/flash_map.h>
 #include <usb/usb_device.h>
 
@@ -51,12 +52,13 @@ LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 ****************************************************************/
 typedef enum {
   IDLE,
+  INIT,
   LOG,
   ERASE,
   DUMP,
   SLEEP
 } Machine_State;
-Machine_State datadisc_state = LOG; // TODO make this IDLE for releases
+Machine_State datadisc_state = INIT;
 
 
 /* file system things */
@@ -359,6 +361,10 @@ static void setup_disk(void) {
 *   Threads
 *
 ****************************************************************/
+/* Condition variable for main initialize done */
+K_MUTEX_DEFINE(init_mut);
+K_CONDVAR_DEFINE(init_cond);
+
 /* Battery check */
 void batt_check_thread(void) {
 
@@ -495,6 +501,14 @@ static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_
 
 void accel_alpha_thread(void) {
 
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
   struct sensor_value accel[3];
   struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
@@ -571,6 +585,14 @@ static void accel_beta_trigger_handler(const struct device *dev, struct sensor_t
 
 void accel_beta_thread(void) {
 
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
   struct sensor_value accel[3];
   struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
@@ -635,6 +657,15 @@ K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
 
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
   struct accel_fifo_item_t *fifo_item;
 
   // TODO: Accel averaging, spin rate, etc.
@@ -655,6 +686,15 @@ uint8_t data[MAX_PATH_LEN];   // Buffer created outside thread to avoid stack ov
 uint64_t time_stamp;
 
 void spi_flash_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
   struct datalog_fifo_item_t *fifo_item;
   struct fs_mount_t *mp = &fs_mnt;
   unsigned int id = (uintptr_t)mp->storage_dev;
@@ -680,9 +720,9 @@ void spi_flash_thread(void) {
     goto out;
   }
 
-  //snprintf(data, sizeof(data), "SOL\n");
+  snprintf(data, sizeof(data), "SOL\n");
 
-  //rc = fs_write(&file, data, 4);
+  rc = fs_write(&file, data, 4);
 
   /* capture initial time stamp */
   time_stamp = (uint64_t)k_uptime_get();
@@ -729,6 +769,8 @@ void main(void) {
   int err;
   struct device *dev;
 
+  k_mutex_lock(&init_mut, K_FOREVER);
+
   SEGGER_RTT_Init();
 
   printk("Starting DataDisc v2\n");
@@ -742,6 +784,11 @@ void main(void) {
   }
 
   LOG_INF("The device is put in USB mass storage mode.\n");
+
+  datadisc_state = LOG;
+
+  k_condvar_signal(&init_cond);
+  k_mutex_unlock(&init_mut);
 
   // Initialize the Bluetooth Subsystem
   //err = bt_enable(NULL);
