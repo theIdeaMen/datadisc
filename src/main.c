@@ -489,14 +489,17 @@ K_SEM_DEFINE(sem_a, 0, 1);
 K_SEM_DEFINE(sem_b, 0, 1);
 
 static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
-  ARG_UNUSED(trigger);
 
-  if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
-    return;
+  enum sensor_trigger_type type = trigger->type;
+
+  if (type == SENSOR_TRIG_DATA_READY) {
+    if (sensor_sample_fetch(dev)) {
+      printf("sensor_sample_fetch failed\n");
+      return;
+    }
+
+    k_sem_give(&sem_b);
   }
-
-  k_sem_give(&sem_a);
 }
 
 void accel_alpha_thread(void) {
@@ -573,14 +576,17 @@ K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
-  ARG_UNUSED(trigger);
 
-  if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
-    return;
+  enum sensor_trigger_type type = trigger->type;
+
+  if (type == SENSOR_TRIG_DATA_READY) {
+    if (sensor_sample_fetch(dev)) {
+      printf("sensor_sample_fetch failed\n");
+      return;
+    }
+
+    k_sem_give(&sem_b);
   }
-
-  k_sem_give(&sem_b);
 }
 
 void accel_beta_thread(void) {
@@ -634,6 +640,8 @@ void accel_beta_thread(void) {
 
     sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, accel);
 
+    //printk("timestamp beta: %d\n", fifo_item.timestamp);
+
     //printk("x: %d.%06d; y: %d.%06d; z: %d.%06d\n",
     //    accel[0].val1, accel[0].val2, accel[1].val1, accel[1].val2,
     //    accel[2].val1, accel[2].val2);
@@ -666,12 +674,14 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_fifo_item_t *fifo_item;
+  struct accel_fifo_item_t *accel_item;
+  struct datalog_fifo_item_t *data_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
-    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
-    k_fifo_put(&datalog_fifo, fifo_item);
+    data_item = k_fifo_get(&accel_fifo, K_FOREVER);
+
+    k_fifo_put(&datalog_fifo, data_item);
   }
 }
 
@@ -732,10 +742,10 @@ void spi_flash_thread(void) {
 
     struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
 
-    snprintf(data, sizeof(data), "%d,%d,%d,%d\n", fifo_item->timestamp,
+    snprintfcb(data, sizeof(data), "%d,%a,%a,%a\n", fifo_item->timestamp,
                                   fifo_data->x, fifo_data->y, fifo_data->z);
 
-    printk("Data is: %s, length: %d", data, strlen(data));
+    printk("Data is: %s, length: %d\n", data, strlen(data));
 
     rc = fs_write(&file, data, strlen(data));
     if (rc < 0) {
