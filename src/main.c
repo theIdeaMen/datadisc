@@ -116,22 +116,6 @@ unsigned int soc_percent = 0;
 /* delay for each thread to allow inits */
 #define TDELAY 100
 
-K_FIFO_DEFINE(accel_fifo);
-K_FIFO_DEFINE(datalog_fifo);
-
-struct accel_fifo_item_t {
-  void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint8_t id;
-  uint32_t timestamp;
-  struct kx134_xyz_accel_data *data;
-};
-
-struct datalog_fifo_item_t {
-  void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint8_t id;
-  uint32_t timestamp;
-  void *data;
-};
 
 
 /***************************************************************
@@ -365,6 +349,7 @@ static void setup_disk(void) {
 K_MUTEX_DEFINE(init_mut);
 K_CONDVAR_DEFINE(init_cond);
 
+
 /* Battery check */
 void batt_check_thread(void) {
 
@@ -476,6 +461,24 @@ void led_control_thread(void) {
 K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
+/* FIFO buffers */
+K_FIFO_DEFINE(accel_fifo);
+K_FIFO_DEFINE(datalog_fifo);
+
+struct accel_fifo_item_t {
+  void *fifo_reserved; /* 1st word reserved for use by FIFO */
+  uint8_t id;
+  uint32_t timestamp;
+  struct sensor_value data[3];
+};
+
+struct datalog_fifo_item_t {
+  void *fifo_reserved; /* 1st word reserved for use by FIFO */
+  uint8_t id;
+  uint32_t timestamp;
+  struct sensor_value data[3];
+};
+
 
 /* Accelerometers */
 #define ACCEL_ALPHA_DEVICE DT_LABEL(DT_INST(0, kionix_kx134_1211))
@@ -512,7 +515,6 @@ void accel_alpha_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct sensor_value accel[3];
   struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
 
@@ -537,7 +539,6 @@ void accel_alpha_thread(void) {
     }
   }
 
-  struct kx134_xyz_accel_data fifo_data; 
   fifo_item.id = ACCEL_ALPHA_ID;
 
   while (1) {
@@ -551,17 +552,7 @@ void accel_alpha_thread(void) {
 
     fifo_item.timestamp = k_uptime_get();
 
-    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, accel);
-
-    //printk("x: %d.%06d; y: %d.%06d; z: %d.%06d\n",
-    //    accel[0].val1, accel[0].val2, accel[1].val1, accel[1].val2,
-    //    accel[2].val1, accel[2].val2);
-
-    fifo_data.x = (float)sensor_value_to_double(&accel[0]);
-    fifo_data.y = (float)sensor_value_to_double(&accel[1]);
-    fifo_data.z = (float)sensor_value_to_double(&accel[2]);
-
-    fifo_item.data = &fifo_data;
+    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
     k_fifo_put(&accel_fifo, &fifo_item);
 
@@ -599,7 +590,6 @@ void accel_beta_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct sensor_value accel[3];
   struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
 
@@ -624,7 +614,6 @@ void accel_beta_thread(void) {
     }
   }
 
-  struct kx134_xyz_accel_data fifo_data; 
   fifo_item.id = ACCEL_BETA_ID;
 
   while (1) {
@@ -638,19 +627,9 @@ void accel_beta_thread(void) {
 
     fifo_item.timestamp = k_uptime_get();
 
-    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, accel);
+    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    //printk("timestamp beta: %d\n", fifo_item.timestamp);
-
-    //printk("x: %d.%06d; y: %d.%06d; z: %d.%06d\n",
-    //    accel[0].val1, accel[0].val2, accel[1].val1, accel[1].val2,
-    //    accel[2].val1, accel[2].val2);
-
-    fifo_data.x = (float)sensor_value_to_double(&accel[0]);
-    fifo_data.y = (float)sensor_value_to_double(&accel[1]);
-    fifo_data.z = (float)sensor_value_to_double(&accel[2]);
-
-    fifo_item.data = &fifo_data;
+    printk("Ping: %d.%d\n", fifo_item.data[0].val1, fifo_item.data[0].val2);
 
     k_fifo_put(&accel_fifo, &fifo_item);
 
@@ -706,6 +685,7 @@ void spi_flash_thread(void) {
   k_mutex_unlock(&init_mut);
 
   struct datalog_fifo_item_t *fifo_item;
+  struct sensor_value acc_val[3];
   struct fs_mount_t *mp = &fs_mnt;
   unsigned int id = (uintptr_t)mp->storage_dev;
   int rc;
@@ -717,8 +697,6 @@ void spi_flash_thread(void) {
     return;
   }
   printk("%s mount\n", mp->mnt_point);
-
-  wait_on_log_flushed();
 
   struct fs_file_t file;
 
@@ -740,22 +718,22 @@ void spi_flash_thread(void) {
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-    struct kx134_xyz_accel_data *fifo_data = (struct kx134_xyz_accel_data*)fifo_item->data;
+    //snprintfcb(data, sizeof(data), "%d,%a,%a,%a\n", fifo_item->timestamp,
+    //                              fifo_data->x, fifo_data->y, fifo_data->z);
 
-    snprintfcb(data, sizeof(data), "%d,%a,%a,%a\n", fifo_item->timestamp,
-                                  fifo_data->x, fifo_data->y, fifo_data->z);
+    printk("Pong: %d.%d\n", fifo_item->data[0].val1, fifo_item->data[0].val2);
 
-    printk("Data is: %s, length: %d\n", data, strlen(data));
+    //rc = fs_write(&file, data, strlen(data));
+    //if (rc < 0) {
+    //  printk("FAIL: write %s: %d\n", fname, rc);
+    //  goto out;
+    //}
 
-    rc = fs_write(&file, data, strlen(data));
-    if (rc < 0) {
-      printk("FAIL: write %s: %d\n", fname, rc);
-      goto out;
-    }
-
-    if ((uint64_t)k_uptime_get() - time_stamp > 10000) {
-      goto out;
-    }
+    //if ((uint64_t)k_uptime_get() - time_stamp > 3000) {
+    //  //goto out;
+    //  return;
+    //}
+    k_sleep(K_MSEC(5));
   }
 
 out:
