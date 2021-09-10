@@ -467,14 +467,14 @@ K_FIFO_DEFINE(datalog_fifo);
 
 struct accel_fifo_item_t {
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint8_t id;
+  uint32_t id;
   uint32_t timestamp;
   struct sensor_value data[3];
 };
 
 struct datalog_fifo_item_t {
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint8_t id;
+  uint32_t id;
   uint32_t timestamp;
   struct sensor_value data[3];
 };
@@ -685,8 +685,9 @@ void spi_flash_thread(void) {
   k_mutex_unlock(&init_mut);
 
   struct datalog_fifo_item_t *fifo_item;
-  struct sensor_value acc_val[3];
+  //struct sensor_value acc_val[3];
   struct fs_mount_t *mp = &fs_mnt;
+  struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
   int rc;
 
@@ -697,8 +698,6 @@ void spi_flash_thread(void) {
     return;
   }
   printk("%s mount\n", mp->mnt_point);
-
-  struct fs_file_t file;
 
   fs_file_t_init(&file);
 
@@ -718,22 +717,22 @@ void spi_flash_thread(void) {
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-    //snprintfcb(data, sizeof(data), "%d,%a,%a,%a\n", fifo_item->timestamp,
-    //                              fifo_data->x, fifo_data->y, fifo_data->z);
+    snprintfcb(data, sizeof(data), "%d,%d.%d,%d.%d,%d.%d\n", fifo_item->timestamp,
+        fifo_item->data[0].val1, fifo_item->data[0].val2,
+        fifo_item->data[1].val1, fifo_item->data[1].val2,
+        fifo_item->data[2].val1, fifo_item->data[2].val2);
 
-    printk("Pong: %d.%d\n", fifo_item->data[0].val1, fifo_item->data[0].val2);
+    printk("Pong: %p\n", datalog_fifo._queue.data_q.head);
 
-    //rc = fs_write(&file, data, strlen(data));
-    //if (rc < 0) {
-    //  printk("FAIL: write %s: %d\n", fname, rc);
-    //  goto out;
-    //}
+    rc = fs_write(&file, data, strlen(data));
+    if (rc < 0) {
+      printk("FAIL: write %s: %d\n", fname, rc);
+      goto out;
+    }
 
-    //if ((uint64_t)k_uptime_get() - time_stamp > 3000) {
-    //  //goto out;
-    //  return;
-    //}
-    k_sleep(K_MSEC(5));
+    if ((uint64_t)k_uptime_get() - time_stamp > 10000) {
+      goto out;
+    }
   }
 
 out:
