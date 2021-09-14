@@ -228,25 +228,17 @@ static int kx134_interrupt_config(const struct device *dev,
  * Get the status register data
  * @param dev - The device structure.
  * @param status - Data stored in the STATUS register
- * @param int_source - Data stored in the 3 interrupt source registers
  * @return 0 in case of success, negative error code otherwise.
  */
-int kx134_get_status(const struct device *dev, uint8_t *status, uint8_t *int_source)
+int kx134_get_status(const struct device *dev, uint8_t *status)
 {
-        int ret;
-
-        ret = kx134_get_reg(dev, status, KX134_STATUS_REG, 1);
-        if (ret) {
-		return ret;
-	}
-
-        return kx134_get_reg(dev, int_source, KX134_INS1, 3);
+        return kx134_get_reg(dev, status, KX134_STATUS_REG, 1);
 }
 
-int kx134_clear_data_ready(const struct device *dev)
+int kx134_clear_interrupts(const struct device *dev)
 {
 	uint8_t buf;
-	/* Reading INT_REL register clears the data ready interrupt */
+	/* Reading INT_REL register clears the interrupt flags */
 	return kx134_get_reg(dev, &buf, KX134_INT_REL, 1);
 }
 #endif
@@ -344,7 +336,7 @@ static int kx134_set_odr(const struct device *dev,
 /**
  * Set full scale range.
  * @param dev  - The device structure.
- * @param gsel - Output data rate.
+ * @param val  - Full scale range.
  *		 Accepted values:  
  * @return 0 in case of success, negative error code otherwise.
  */
@@ -375,6 +367,27 @@ static int kx134_set_gsel(const struct device *dev,
 				      KX134_CNTL1_GSEL_MODE(gsel));
 }
 
+/**
+ * Get interrupt source.
+ * @param dev  - The device structure.
+ * @param val  - Interrupt source register value. 
+ * @return 0 in case of success, negative error code otherwise.
+ */
+static int kx134_get_int_source(const struct device *dev,
+				struct sensor_value *val)
+{
+	uint8_t int_src[3];
+        int ret;
+
+	ret = kx134_get_reg(dev, int_src, KX134_INS1, 3);
+        if (ret) {
+		return ret;
+	}
+        val->val1 = int_src[0];
+        val->val1 = (val->val1 << 8) | int_src[1];
+        val->val1 = (val->val1 << 8) | int_src[2];
+}
+
 static int kx134_attr_set(const struct device *dev,
 			    enum sensor_channel chan,
 			    enum sensor_attribute attr,
@@ -384,7 +397,21 @@ static int kx134_attr_set(const struct device *dev,
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
 		return kx134_set_odr(dev, val);
 	case SENSOR_ATTR_FULL_SCALE:
-                return kx134_set_odr(dev, val);
+                return kx134_set_gsel(dev, val);
+	default:
+		return -ENOTSUP;
+	}
+        // TODO: Figure out how to make custom attributes
+}
+
+static int kx134_attr_get(const struct device *dev,
+			    enum sensor_channel chan,
+			    enum sensor_attribute attr,
+			    struct sensor_value *val)
+{
+	switch (attr) {
+	case KX134_SENSOR_ATTR_INT_SOURCE:
+		return kx134_get_int_source(dev, val);
 	default:
 		return -ENOTSUP;
 	}
@@ -477,6 +504,7 @@ static int kx134_channel_get(const struct device *dev,
 
 static const struct sensor_driver_api kx134_api_funcs = {
         .attr_set     = kx134_attr_set,
+        .attr_get     = kx134_attr_get,
 	.sample_fetch = kx134_sample_fetch,
 	.channel_get  = kx134_channel_get,
 #ifdef CONFIG_KX134_TRIGGER
@@ -537,9 +565,75 @@ enum kx134_op_mode kx134_get_kconfig_op_mode(void) {
   #endif
 }
 
+#if defined(CONFIG_KX134_TRIGGER)
+
+uint8_t kx134_get_kconfig_inc1(void) {
+  uint8_t pw1 = 0;
+
+  #ifdef CONFIG_KX134_PW1_USEC
+         pw1 = 0;
+  #elif CONFIG_KX134_PW1_1XOSA
+         pw1 = 1;
+  #elif CONFIG_KX134_PW1_2XOSA
+         pw1 = 2;
+  #elif CONFIG_KX134_PW1_RTIME
+         pw1 = 3;
+  #endif
+
+  return (  KX134_INC1_PW1_MODE(pw1) | KX134_INC1_IEN1_MODE(IS_ENABLED(CONFIG_KX134_INT1)) | 
+            KX134_INC1_IEA1_MODE(IS_ENABLED(CONFIG_KX134_IEA1)) | 
+            KX134_INC1_IEL1_MODE(IS_ENABLED(CONFIG_KX134_IEL1)) );
+}
+
+uint8_t kx134_get_kconfig_inc4(void) {
+
+  return (  KX134_INC4_FFI1_MODE(IS_ENABLED(CONFIG_KX134_FFI1)) | 
+            KX134_INC4_BFI1_MODE(IS_ENABLED(CONFIG_KX134_BFI1)) | 
+            KX134_INC4_WMI1_MODE(IS_ENABLED(CONFIG_KX134_WMI1)) | 
+            KX134_INC4_DRDYI1_MODE(IS_ENABLED(CONFIG_KX134_DRDYI1)) |
+            KX134_INC4_BTSI1_MODE(IS_ENABLED(CONFIG_KX134_BTSI1)) |
+            KX134_INC4_TDTI1_MODE(IS_ENABLED(CONFIG_KX134_TDTI1)) |
+            KX134_INC4_WUFI1_MODE(IS_ENABLED(CONFIG_KX134_WUFI1)) |
+            KX134_INC4_TPI1_MODE(IS_ENABLED(CONFIG_KX134_TPI1)) );
+	
+}
+
+uint8_t kx134_get_kconfig_inc5(void) {
+  uint8_t pw2 = 0;
+
+  #ifdef CONFIG_KX134_PW2_USEC
+         pw2 = 0;
+  #elif CONFIG_KX134_PW2_1XOSA
+         pw2 = 1;
+  #elif CONFIG_KX134_PW2_2XOSA
+         pw2 = 2;
+  #elif CONFIG_KX134_PW2_RTIME
+         pw2 = 3;
+  #endif
+
+  return (  KX134_INC5_PW2_MODE(pw2) | KX134_INC5_IEN2_MODE(IS_ENABLED(CONFIG_KX134_INT2)) | 
+            KX134_INC5_IEA2_MODE(IS_ENABLED(CONFIG_KX134_IEA2)) | 
+            KX134_INC5_IEL2_MODE(IS_ENABLED(CONFIG_KX134_IEL2)) );
+}
+
+uint8_t kx134_get_kconfig_inc6(void) {
+
+  return (  KX134_INC6_FFI2_MODE(IS_ENABLED(CONFIG_KX134_FFI2)) | 
+            KX134_INC6_BFI2_MODE(IS_ENABLED(CONFIG_KX134_BFI2)) | 
+            KX134_INC6_WMI2_MODE(IS_ENABLED(CONFIG_KX134_WMI2)) | 
+            KX134_INC6_DRDYI2_MODE(IS_ENABLED(CONFIG_KX134_DRDYI2)) |
+            KX134_INC6_BTSI2_MODE(IS_ENABLED(CONFIG_KX134_BTSI2)) |
+            KX134_INC6_TDTI2_MODE(IS_ENABLED(CONFIG_KX134_TDTI2)) |
+            KX134_INC6_WUFI2_MODE(IS_ENABLED(CONFIG_KX134_WUFI2)) |
+            KX134_INC6_TPI2_MODE(IS_ENABLED(CONFIG_KX134_TPI2)) );
+	
+}
+
+#endif // CONFIG_KX134_TRIGGER
+
 static int kx134_chip_init(const struct device *dev)
 {
-	const struct kx134_config *cfg = dev->config;
+        struct kx134_data *data = dev->data;
 	int ret;
 
 	/* Device settings from kconfig */
@@ -557,17 +651,21 @@ static int kx134_chip_init(const struct device *dev)
 		return ret;
 	}
 
-#if defined(CONFIG_KX134_TRIGGER)
-        uint8_t int1_config = KX134_INC1_IEN1_MODE(1) | KX134_INC1_IEA1_MODE(1);
-        uint8_t int2_config = KX134_INC5_IEN2_MODE(0);
 
-	if (kx134_init_interrupt(dev) < 0) {
-		LOG_ERR("Failed to initialize interrupt!");
+#if defined(CONFIG_KX134_TRIGGER)
+        data->int1_config = kx134_get_kconfig_inc1();
+        data->int1_source = kx134_get_kconfig_inc4();
+
+        data->int2_config = kx134_get_kconfig_inc5();
+        data->int2_source = kx134_get_kconfig_inc6();
+
+        if (kx134_interrupt_config(dev, data->int1_config, data->int2_config) < 0) {
+		LOG_ERR("Failed to configure interrupt");
 		return -EIO;
 	}
 
-	if (kx134_interrupt_config(dev, int1_config, int2_config) < 0) {
-		LOG_ERR("Failed to configure interrupt");
+	if (kx134_init_interrupt(dev) < 0) {
+		LOG_ERR("Failed to initialize interrupt!");
 		return -EIO;
 	}
 #endif

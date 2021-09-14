@@ -160,7 +160,7 @@ static void bt_ready(void) {
 
 static void wait_on_log_flushed(void) {
   while (log_buffered_cnt()) {
-    k_sleep(K_MSEC(5));
+    k_sleep(K_MSEC(15));
   }
 }
 
@@ -458,8 +458,8 @@ void led_control_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 /* FIFO buffers */
 K_FIFO_DEFINE(accel_fifo);
@@ -629,7 +629,7 @@ void accel_beta_thread(void) {
 
     sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    printk("Ping: %d.%d\n", fifo_item.data[0].val1, fifo_item.data[0].val2);
+    printk("[%s] Ping: %d.%d\n", now_str(), fifo_item.data[0].val1, fifo_item.data[0].val2);
 
     k_fifo_put(&accel_fifo, &fifo_item);
 
@@ -664,8 +664,8 @@ void runtime_compute_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
@@ -722,7 +722,7 @@ void spi_flash_thread(void) {
         fifo_item->data[1].val1, fifo_item->data[1].val2,
         fifo_item->data[2].val1, fifo_item->data[2].val2);
 
-    printk("Pong: %p\n", datalog_fifo._queue.data_q.head);
+    printk("[%s] Pong: %p\n", now_str(), datalog_fifo._queue.data_q.head);
 
     rc = fs_write(&file, data, strlen(data));
     if (rc < 0) {
@@ -733,6 +733,8 @@ void spi_flash_thread(void) {
     if ((uint64_t)k_uptime_get() - time_stamp > 10000) {
       goto out;
     }
+
+    printk("[%s] Pang: %p\n", now_str(), datalog_fifo._queue.data_q.head);
   }
 
 out:
@@ -742,8 +744,8 @@ out:
   printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
 
@@ -772,7 +774,7 @@ void main(void) {
 
   LOG_INF("The device is put in USB mass storage mode.\n");
 
-  datadisc_state = LOG;
+  datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
   k_mutex_unlock(&init_mut);

@@ -129,50 +129,50 @@
 
 
 /* KX134_TSCP */
-#define KX1342_TSCP_LE(x)			(((x) >> 5) & 0x1)
-#define KX1342_TSCP_RI(x)			(((x) >> 4) & 0x1)
-#define KX1342_TSCP_DO(x)			(((x) >> 3) & 0x1)
-#define KX1342_TSCP_UP(x)			(((x) >> 2) & 0x1)
-#define KX1342_TSCP_FD(x)			(((x) >> 1) & 0x1)
-#define KX1342_TSCP_FU(x)			(((x) >> 0) & 0x1)
+#define KX134_TSCP_LE(x)			(((x) >> 5) & 0x1)
+#define KX134_TSCP_RI(x)			(((x) >> 4) & 0x1)
+#define KX134_TSCP_DO(x)			(((x) >> 3) & 0x1)
+#define KX134_TSCP_UP(x)			(((x) >> 2) & 0x1)
+#define KX134_TSCP_FD(x)			(((x) >> 1) & 0x1)
+#define KX134_TSCP_FU(x)			(((x) >> 0) & 0x1)
 
 /* KX134_TSPP */
-#define KX1342_TSPP_LE(x)			(((x) >> 5) & 0x1)
-#define KX1342_TSPP_RI(x)			(((x) >> 4) & 0x1)
-#define KX1342_TSPP_DO(x)			(((x) >> 3) & 0x1)
-#define KX1342_TSPP_UP(x)			(((x) >> 2) & 0x1)
-#define KX1342_TSPP_FD(x)			(((x) >> 1) & 0x1)
-#define KX1342_TSPP_FU(x)			(((x) >> 0) & 0x1)
+#define KX134_TSPP_LE(x)			(((x) >> 5) & 0x1)
+#define KX134_TSPP_RI(x)			(((x) >> 4) & 0x1)
+#define KX134_TSPP_DO(x)			(((x) >> 3) & 0x1)
+#define KX134_TSPP_UP(x)			(((x) >> 2) & 0x1)
+#define KX134_TSPP_FD(x)			(((x) >> 1) & 0x1)
+#define KX134_TSPP_FU(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS1 */
-#define KX1342_INS1_TLE(x)			(((x) >> 5) & 0x1)
-#define KX1342_INS1_TRI(x)			(((x) >> 4) & 0x1)
-#define KX1342_INS1_TDO(x)			(((x) >> 3) & 0x1)
-#define KX1342_INS1_TUP(x)			(((x) >> 2) & 0x1)
-#define KX1342_INS1_TFD(x)			(((x) >> 1) & 0x1)
-#define KX1342_INS1_TFU(x)			(((x) >> 0) & 0x1)
+#define KX134_INS1_TLE(x)			(((x) >> 5) & 0x1)
+#define KX134_INS1_TRI(x)			(((x) >> 4) & 0x1)
+#define KX134_INS1_TDO(x)			(((x) >> 3) & 0x1)
+#define KX134_INS1_TUP(x)			(((x) >> 2) & 0x1)
+#define KX134_INS1_TFD(x)			(((x) >> 1) & 0x1)
+#define KX134_INS1_TFU(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS2 */
-#define KX1342_INS2_FFS(x)			(((x) >> 7) & 0x1)
-#define KX1342_INS2_BFI(x)			(((x) >> 6) & 0x1)
-#define KX1342_INS2_WMI(x)			(((x) >> 5) & 0x1)
-#define KX1342_INS2_DRDY(x)			(((x) >> 4) & 0x1)
-#define KX1342_INS2_TDTS(x)			(((x) >> 2) & 0x3)
-#define KX1342_INS2_TPS(x)			(((x) >> 0) & 0x1)
+#define KX134_INS2_FFS(x)			(((x) >> 7) & 0x1)
+#define KX134_INS2_BFI(x)			(((x) >> 6) & 0x1)
+#define KX134_INS2_WMI(x)			(((x) >> 5) & 0x1)
+#define KX134_INS2_DRDY(x)			(((x) >> 4) & 0x1)
+#define KX134_INS2_TDTS(x)			(((x) >> 2) & 0x3)
+#define KX134_INS2_TPS(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS3 */
-#define KX1342_INS3_WUFS(x)			(((x) >> 7) & 0x1)
-#define KX1342_INS3_BTS(x)			(((x) >> 6) & 0x1)
-#define KX1342_INS3_XNWU(x)			(((x) >> 5) & 0x1)
-#define KX1342_INS3_XPWU(x)			(((x) >> 4) & 0x1)
-#define KX1342_INS3_YNWU(x)			(((x) >> 3) & 0x1)
-#define KX1342_INS3_YPWU(x)			(((x) >> 2) & 0x1)
-#define KX1342_INS3_ZNWU(x)			(((x) >> 1) & 0x1)
-#define KX1342_INS3_ZPWU(x)			(((x) >> 0) & 0x1)
+#define KX134_INS3_WUFS(x)			(((x) >> 7) & 0x1)
+#define KX134_INS3_BTS(x)			(((x) >> 6) & 0x1)
+#define KX134_INS3_XNWU(x)			(((x) >> 5) & 0x1)
+#define KX134_INS3_XPWU(x)			(((x) >> 4) & 0x1)
+#define KX134_INS3_YNWU(x)			(((x) >> 3) & 0x1)
+#define KX134_INS3_YPWU(x)			(((x) >> 2) & 0x1)
+#define KX134_INS3_ZNWU(x)			(((x) >> 1) & 0x1)
+#define KX134_INS3_ZPWU(x)			(((x) >> 0) & 0x1)
 
 /* KX134_STATUS_REG */
-#define KX1342_STATUS_REG_INT(x)		(((x) >> 4) & 0x1)
-#define KX1342_STATUS_REG_WAKE(x)		(((x) >> 0) & 0x1)
+#define KX134_STATUS_REG_INT(x)		(((x) >> 4) & 0x1)
+#define KX134_STATUS_REG_WAKE(x)		(((x) >> 0) & 0x1)
 
 /* KX134_CNTL1 */
 #define KX134_CNTL1_ACTIVE_MSK			GENMASK(7, 6)
@@ -391,8 +391,8 @@
 #define KX134_BUF_CNTL2_BM_MODE(x)		(((x) & 0x3) << 0)
 
 /* KX134_BUF_STATUS */
-#define KX1342_BUF_STATUS_SMP_LEV(x)		(((x) >> 0) & 0x3FF)
-#define KX1342_BUF_STATUS_BUF_TRIG(x)		(((x) >> 7) & 0x1)
+#define KX134_BUF_STATUS_SMP_LEV(x)		(((x) >> 0) & 0x3FF)
+#define KX134_BUF_STATUS_BUF_TRIG(x)		(((x) >> 7) & 0x1)
 
 /* KX134_ADP_CNTL1 */
 #define KX134_ADP_CNTL1_RMS_AVC_MSK		GENMASK(6, 4)
@@ -428,6 +428,25 @@
 #define KX134_ACCEL_16G_LSB_PER_G	2041
 #define KX134_ACCEL_32G_LSB_PER_G	1020
 #define KX134_ACCEL_64G_LSB_PER_G	513
+
+
+/* Extended Sensor trigger types */
+enum kx134_sensor_trigger_type {
+	/* End of parent enum, beginning of extended */
+	KX134_SENSOR_TRIG_PRIV_START = SENSOR_TRIG_PRIV_START,
+	
+	/* Any 1 of 8 triggers available to physical INT pin */
+	KX134_SENSOR_TRIG_ANY,
+};
+
+/* Extended Sensor attributes */
+enum kx134_sensor_attribute {
+	/* End of parent enum, beginning of extended */
+        KX134_SENSOR_ATTR_PRIV_START = SENSOR_ATTR_PRIV_START,
+
+	/* */
+	KX134_SENSOR_ATTR_INT_SOURCE,
+};
 
 
 enum kx134_op_mode {
@@ -598,6 +617,13 @@ struct kx134_data {
 	struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t drdy_handler;
 	struct sensor_trigger drdy_trigger;
+        sensor_trigger_handler_t any_handler;
+	struct sensor_trigger any_trigger;
+
+        uint8_t int1_config;
+        uint8_t int1_source;
+	uint8_t int2_config;
+        uint8_t int2_source;
 
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);
@@ -628,8 +654,6 @@ struct kx134_config {
 	const char *gpio_port;
 	gpio_pin_t int_gpio;
 	gpio_dt_flags_t int_flags;
-        uint8_t int1_config;
-	uint8_t int2_config;
 #endif
 
 	/* Device Settings */
@@ -649,7 +673,7 @@ struct kx134_config {
 };
 
 #ifdef CONFIG_KX134_TRIGGER
-int kx134_get_status(const struct device *dev, uint8_t *status, uint8_t *int_source);
+int kx134_get_status(const struct device *dev, uint8_t *status);
 
 int kx134_reg_write_mask(const struct device *dev,
 			   uint8_t reg_addr, uint8_t mask, uint8_t data);
@@ -660,7 +684,7 @@ int kx134_trigger_set(const struct device *dev,
 
 int kx134_init_interrupt(const struct device *dev);
 
-int kx134_clear_data_ready(const struct device *dev);
+int kx134_clear_interrupts(const struct device *dev);
 #endif /* CONFIG_KX134_TRIGGER */
 
 #endif /* ZEPHYR_DRIVERS_SENSOR_KX134_H_ */

@@ -18,19 +18,12 @@ LOG_MODULE_DECLARE(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
 static void kx134_thread_cb(const struct device *dev) {
   struct kx134_data *drv_data = dev->data;
-  uint8_t status_buf;
-  uint8_t int_source[3];
-
-  /* Clear the status */
-  if (kx134_get_status(dev, &status_buf, (uint8_t *)int_source)) {
-    LOG_ERR("Unable to get status.");
-    return;
-  }
 
   k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
 
-  if (drv_data->drdy_handler != NULL && KX1342_INS2_DRDY(int_source[1])) {
+  if (drv_data->drdy_handler != NULL) {
     drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
+    kx134_clear_interrupts(dev);
   }
   k_mutex_unlock(&drv_data->trigger_mutex);
 }
@@ -63,8 +56,7 @@ static void kx134_work_cb(struct k_work *work) {
 
 int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *trig, sensor_trigger_handler_t handler) {
   struct kx134_data *drv_data = dev->data;
-  uint8_t int_mask, int_en, status_buf;
-  uint8_t int_source[3];
+  uint8_t int_mask, int_en;
 
   switch (trig->type) {
   case SENSOR_TRIG_THRESHOLD:
@@ -72,7 +64,6 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
     drv_data->th_handler = handler;
     drv_data->th_trigger = *trig;
     int_mask = 0;
-    kx134_get_status(dev, &status_buf, (uint8_t *)int_source);
     break;
   case SENSOR_TRIG_DATA_READY:
     k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
@@ -81,7 +72,15 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
     k_mutex_unlock(&drv_data->trigger_mutex);
     int_mask = KX134_INC4_DRDYI1_MSK;
     kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_DRDY_EN_MSK, KX134_CNTL1_DRDY_EN_MODE(1));
-    kx134_clear_data_ready(dev);
+    kx134_clear_interrupts(dev);
+    break;
+  case KX134_SENSOR_TRIG_ANY:
+    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
+    drv_data->any_handler = handler;
+    drv_data->any_trigger = *trig;
+    k_mutex_unlock(&drv_data->trigger_mutex);
+    int_mask = drv_data->int1_source;
+    kx134_clear_interrupts(dev);
     break;
   default:
     LOG_ERR("Unsupported sensor trigger");
@@ -100,7 +99,6 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
 int kx134_init_interrupt(const struct device *dev) {
   struct kx134_data *drv_data = dev->data;
   const struct kx134_config *cfg = dev->config;
-  int ret;
 
   k_mutex_init(&drv_data->trigger_mutex);
 
