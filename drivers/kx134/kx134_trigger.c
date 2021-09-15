@@ -25,6 +25,11 @@ static void kx134_thread_cb(const struct device *dev) {
     drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
     kx134_clear_interrupts(dev);
   }
+
+  if (drv_data->any_handler != NULL) {
+    drv_data->any_handler(dev, &drv_data->any_trigger);
+    kx134_clear_interrupts(dev);
+  }
   k_mutex_unlock(&drv_data->trigger_mutex);
 }
 
@@ -80,6 +85,8 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
     drv_data->any_trigger = *trig;
     k_mutex_unlock(&drv_data->trigger_mutex);
     int_mask = drv_data->int1_source;
+    kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_DRDY_EN_MSK, KX134_CNTL1_DRDY_EN_MODE(1));
+    kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_TILT_EN_MSK, KX134_CNTL1_TAP_EN_MODE(1));
     kx134_clear_interrupts(dev);
     break;
   default:

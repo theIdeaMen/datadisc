@@ -157,7 +157,8 @@
 #define KX134_INS2_BFI(x)			(((x) >> 6) & 0x1)
 #define KX134_INS2_WMI(x)			(((x) >> 5) & 0x1)
 #define KX134_INS2_DRDY(x)			(((x) >> 4) & 0x1)
-#define KX134_INS2_TDTS(x)			(((x) >> 2) & 0x3)
+#define KX134_INS2_STS(x)			(((x) >> 3) & 0x1)
+#define KX134_INS2_DTS(x)			(((x) >> 2) & 0x1)
 #define KX134_INS2_TPS(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS3 */
@@ -171,7 +172,7 @@
 #define KX134_INS3_ZPWU(x)			(((x) >> 0) & 0x1)
 
 /* KX134_STATUS_REG */
-#define KX134_STATUS_REG_INT(x)		(((x) >> 4) & 0x1)
+#define KX134_STATUS_REG_INT(x)                 (((x) >> 4) & 0x1)
 #define KX134_STATUS_REG_WAKE(x)		(((x) >> 0) & 0x1)
 
 /* KX134_CNTL1 */
@@ -440,12 +441,12 @@ enum kx134_sensor_trigger_type {
 };
 
 /* Extended Sensor attributes */
-enum kx134_sensor_attribute {
+enum kx134_sensor_channel {
 	/* End of parent enum, beginning of extended */
-        KX134_SENSOR_ATTR_PRIV_START = SENSOR_ATTR_PRIV_START,
+        KX134_SENSOR_CHAN_PRIV_START = SENSOR_CHAN_PRIV_START,
 
 	/* */
-	KX134_SENSOR_ATTR_INT_SOURCE,
+	KX134_SENSOR_CHAN_INT_SOURCE,
 };
 
 
@@ -584,11 +585,6 @@ struct kx134_buff_config {
         uint16_t fifo_samples;
 };
 
-struct kx134_xyz_accel_data {
-	float x;
-	float y;
-	float z;
-};
 
 struct kx134_data {
 	const struct device *bus;
@@ -624,6 +620,10 @@ struct kx134_data {
         uint8_t int1_source;
 	uint8_t int2_config;
         uint8_t int2_source;
+
+        uint8_t tap_int;
+        uint8_t func_int;
+        uint8_t wkup_int;
 
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);

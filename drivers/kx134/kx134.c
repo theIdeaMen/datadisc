@@ -410,8 +410,7 @@ static int kx134_attr_get(const struct device *dev,
 			    struct sensor_value *val)
 {
 	switch (attr) {
-	case KX134_SENSOR_ATTR_INT_SOURCE:
-		return kx134_get_int_source(dev, val);
+	case 0:
 	default:
 		return -ENOTSUP;
 	}
@@ -461,6 +460,15 @@ static int kx134_sample_fetch(const struct device *dev,
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
+        ret = kx134_get_reg(dev, (uint8_t *)buf, KX134_INS1, 3);
+        if (ret) {
+		return ret;
+	}
+        data->tap_int = buf[0];
+        data->func_int = buf[1];
+        data->wkup_int = buf[2];
+
+
 	ret = kx134_get_reg(dev, (uint8_t *)buf, KX134_XOUT_L, sizeof(buf));
 	if (ret) {
 		return ret;
@@ -494,6 +502,9 @@ static int kx134_channel_get(const struct device *dev,
 		for (size_t i = 0; i < 3; i++) {
 			kx134_accel_convert(&val[i], data->acc_xyz[i], data->selected_range);
 		}
+		break;
+        case KX134_SENSOR_CHAN_INT_SOURCE:
+                val->val1 = data->func_int;
 		break;
 	default:
 		return -ENOTSUP;

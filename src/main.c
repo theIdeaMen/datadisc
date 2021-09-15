@@ -562,22 +562,18 @@ void accel_alpha_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
-  enum sensor_trigger_type type = trigger->type;
-
-  if (type == SENSOR_TRIG_DATA_READY) {
-    if (sensor_sample_fetch(dev)) {
-      printf("sensor_sample_fetch failed\n");
-      return;
-    }
-
-    k_sem_give(&sem_b);
+  if (sensor_sample_fetch(dev)) {
+    printf("sensor_sample_fetch failed\n");
+    return;
   }
+
+  k_sem_give(&sem_b);
 }
 
 void accel_beta_thread(void) {
@@ -592,6 +588,7 @@ void accel_beta_thread(void) {
 
   struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
+  struct sensor_value int_source;
 
   if (!dev) {
     printf("Devicetree has no kionix,kx134-1211 node\n");
@@ -603,7 +600,7 @@ void accel_beta_thread(void) {
   }
 
   struct sensor_trigger trig = {
-      .type = SENSOR_TRIG_DATA_READY,
+      .type = KX134_SENSOR_TRIG_ANY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
@@ -625,14 +622,22 @@ void accel_beta_thread(void) {
       }
     }
 
-    fifo_item.timestamp = k_uptime_get();
+    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
 
-    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
+    if (KX134_INS2_DRDY(int_source.val1)) {
+      fifo_item.timestamp = k_uptime_get();
 
-    printk("[%s] Ping: %d.%d\n", now_str(), fifo_item.data[0].val1, fifo_item.data[0].val2);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    k_fifo_put(&accel_fifo, &fifo_item);
+      //printk("[%s] Ping: %d.%d\n", now_str(), fifo_item.data[0].val1, fifo_item.data[0].val2);
 
+      k_fifo_put(&accel_fifo, &fifo_item);
+    }
+
+    if (KX134_INS2_DTS(int_source.val1)) {
+      printk("[%s] Double Tap!\n", now_str());
+    }
+    
     if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
       k_sleep(K_MSEC(2000));
     }
