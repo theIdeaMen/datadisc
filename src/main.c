@@ -430,7 +430,7 @@ void led_control_thread(void) {
   while (1) {
 
     switch (datadisc_state) {
-    case LOG:
+    case IDLE:
       for (level = 0; level <= MAX_BRIGHTNESS; level++) {
         err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
         if (err < 0) {
@@ -451,6 +451,23 @@ void led_control_thread(void) {
       k_msleep(1000);
       break;
 
+    case LOG:
+      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, MAX_BRIGHTNESS, PWM_FLAGS);
+      if (err < 0) {
+        LOG_ERR("err=%d", err);
+        return;
+      }
+      k_msleep(300);
+
+      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, 0, PWM_FLAGS);
+      if (err < 0) {
+        LOG_ERR("err=%d", err);
+        return;
+      }
+      k_msleep(300);
+
+      break;
+
     default: // TODO: decide on times for other states
 
       break;
@@ -458,8 +475,8 @@ void led_control_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 /* FIFO buffers */
 K_FIFO_DEFINE(accel_fifo);
@@ -636,6 +653,14 @@ void accel_beta_thread(void) {
 
     if (KX134_INS2_DTS(int_source.val1)) {
       printk("[%s] Double Tap!\n", now_str());
+
+      /* Toggle DataDisc State */
+      if (datadisc_state == IDLE) {
+        datadisc_state = LOG;
+      }
+      else {
+        datadisc_state = IDLE;
+      }
     }
     
     if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
@@ -658,14 +683,15 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_fifo_item_t *accel_item;
   struct datalog_fifo_item_t *data_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
     data_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    k_fifo_put(&datalog_fifo, data_item);
+    if (datadisc_state == LOG) {
+      k_fifo_put(&datalog_fifo, data_item);
+    }
   }
 }
 
@@ -716,9 +742,6 @@ void spi_flash_thread(void) {
 
   rc = fs_write(&file, data, 4);
 
-  /* capture initial time stamp */
-  time_stamp = (uint64_t)k_uptime_get();
-
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
@@ -735,10 +758,6 @@ void spi_flash_thread(void) {
       goto out;
     }
 
-    if ((uint64_t)k_uptime_get() - time_stamp > 10000) {
-      goto out;
-    }
-
     printk("[%s] Pang: %p\n", now_str(), datalog_fifo._queue.data_q.head);
   }
 
@@ -749,8 +768,8 @@ out:
   printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
-//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
 
