@@ -624,7 +624,7 @@ uint8_t kx134_get_kconfig_inc6(void) {
 	
 }
 
-#endif // CONFIG_KX134_TRIGGER
+#endif /* CONFIG_KX134_TRIGGER */
 
 static int kx134_chip_init(const struct device *dev)
 {
@@ -678,6 +678,37 @@ static int kx134_chip_init(const struct device *dev)
 	if (ret) {
 		return ret;
 	}
+
+#if defined(CONFIG_KX134_DTRE)
+        ret = kx134_set_reg(dev, CONFIG_KX134_TDTC, KX134_TDTC, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_TTH, KX134_TTH, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_TTL, KX134_TTL, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_FTD, KX134_FTD, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_STD, KX134_STD, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_TLT, KX134_TLT, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, CONFIG_KX134_TWS, KX134_TWS, 1);
+	if (ret) {
+		return ret;
+	}
+#endif /* CONFIG_KX134_DTRE */
 
 	if (kx134_init_interrupt(dev) < 0) {
 		LOG_ERR("Failed to initialize interrupt!");

@@ -22,7 +22,6 @@
 
 #include <ff.h>
 #include <fs/fs.h>
-//#include <fs/littlefs.h>
 #include <storage/flash_map.h>
 #include <usb/usb_device.h>
 
@@ -518,7 +517,7 @@ static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_
       return;
     }
 
-    k_sem_give(&sem_b);
+    k_sem_give(&sem_a);
   }
 }
 
@@ -571,7 +570,7 @@ void accel_alpha_thread(void) {
 
     sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    k_fifo_put(&accel_fifo, &fifo_item);
+    k_fifo_alloc_put(&accel_fifo, &fifo_item);
 
     if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
       k_sleep(K_MSEC(2000));
@@ -648,7 +647,7 @@ void accel_beta_thread(void) {
 
       //printk("[%s] Ping: %d.%d\n", now_str(), fifo_item.data[0].val1, fifo_item.data[0].val2);
 
-      k_fifo_put(&accel_fifo, &fifo_item);
+      k_fifo_alloc_put(&accel_fifo, &fifo_item);
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
@@ -695,8 +694,8 @@ void runtime_compute_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
@@ -745,7 +744,7 @@ void spi_flash_thread(void) {
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-    snprintfcb(data, sizeof(data), "%d,%d.%d,%d.%d,%d.%d\n", fifo_item->timestamp,
+    snprintf(data, sizeof(data), "%d,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
         fifo_item->data[0].val1, fifo_item->data[0].val2,
         fifo_item->data[1].val1, fifo_item->data[1].val2,
         fifo_item->data[2].val1, fifo_item->data[2].val2);
