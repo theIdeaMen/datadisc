@@ -106,8 +106,11 @@ unsigned int soc_percent = 0;
 
 
 /* Thread things */
-/* size of stack area used by each thread */
+/* size of stack area used by most threads */
 #define STACKSIZE 1024
+
+/* based on ODR of 6400 for 100ms */
+#define ACC_STACK 24576
 
 /* scheduling priority used by each thread */
 #define PRIORITY 7
@@ -235,6 +238,8 @@ static int mount_app_fs(struct fs_mount_t *mnt) {
   return rc;
 }
 
+uint8_t boot_count;
+
 static void setup_disk(void) {
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_dir_t dir;
@@ -320,7 +325,7 @@ static void setup_disk(void) {
     return;
   }
 
-  uint8_t boot_count = 0;
+  boot_count = 0;
 
   if (rc >= 0) {
     rc = fs_read(&file, &boot_count, sizeof(boot_count));
@@ -483,15 +488,15 @@ K_FIFO_DEFINE(datalog_fifo);
 
 struct accel_fifo_item_t {
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint32_t id;
-  uint32_t timestamp;
+  uint8_t id;
+  uint64_t timestamp;
   struct sensor_value data[3];
 };
 
 struct datalog_fifo_item_t {
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint32_t id;
-  uint32_t timestamp;
+  uint8_t id;
+  uint64_t timestamp;
   struct sensor_value data[3];
 };
 
@@ -592,6 +597,7 @@ static void accel_beta_trigger_handler(const struct device *dev, struct sensor_t
   k_sem_give(&sem_b);
 }
 
+
 void accel_beta_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
@@ -620,32 +626,22 @@ void accel_beta_thread(void) {
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-    if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
-      printf("Could not set trigger\n");
-      return;
-    }
+  if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
+    printf("Could not set trigger\n");
+    return;
   }
 
   fifo_item.id = ACCEL_BETA_ID;
 
   while (1) {
-    if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-      k_sem_take(&sem_b, K_FOREVER);
-    } else {
-      if (sensor_sample_fetch(dev)) {
-        printf("sensor_sample_fetch failed\n");
-      }
-    }
+    k_sem_take(&sem_b, K_FOREVER);
 
     sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
 
-    if (KX134_INS2_DRDY(int_source.val1)) {
+    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
       fifo_item.timestamp = k_uptime_get();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
-
-      //printk("[%s] Ping: %d.%d\n", now_str(), fifo_item.data[0].val1, fifo_item.data[0].val2);
 
       k_fifo_alloc_put(&accel_fifo, &fifo_item);
     }
@@ -661,15 +657,12 @@ void accel_beta_thread(void) {
         datadisc_state = IDLE;
       }
     }
-    
-    if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-      k_sleep(K_MSEC(2000));
-    }
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+K_THREAD_DEFINE(accel_beta_id, ACC_STACK, accel_beta_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
 
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
@@ -688,9 +681,7 @@ void runtime_compute_thread(void) {
   while (1) {
     data_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    if (datadisc_state == LOG) {
-      k_fifo_put(&datalog_fifo, data_item);
-    }
+    k_fifo_put(&datalog_fifo, data_item);
   }
 }
 
@@ -702,26 +693,18 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
 uint8_t fname[MAX_PATH_LEN];     // Buffer created outside thread to avoid stack overflow
 uint8_t data[MAX_PATH_LEN];   // Buffer created outside thread to avoid stack overflow
 
-uint64_t time_stamp;
-
-void spi_flash_thread(void) {
-
-  k_mutex_lock(&init_mut, K_FOREVER);
-
-  while (datadisc_state == INIT) {
-    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
-  }
-
-  k_mutex_unlock(&init_mut);
+extern void spi_flash_thread(void) {
 
   struct datalog_fifo_item_t *fifo_item;
-  //struct sensor_value acc_val[3];
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
+  uint64_t log_start_time;
   int rc;
 
-  snprintf(fname, sizeof(fname), "%s/datalog.csv", mp->mnt_point);
+  log_start_time = k_uptime_get();
+
+  snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
 
   if (!mp->mnt_point) {
     printk("FAIL: mount id %u at %s\n", id, mp->mnt_point);
@@ -739,17 +722,15 @@ void spi_flash_thread(void) {
 
   snprintf(data, sizeof(data), "SOL\n");
 
-  rc = fs_write(&file, data, 4);
+  rc = fs_write(&file, data, strlen(data));
 
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-    snprintf(data, sizeof(data), "%d,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
+    snprintf(data, sizeof(data), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
         fifo_item->data[0].val1, fifo_item->data[0].val2,
         fifo_item->data[1].val1, fifo_item->data[1].val2,
         fifo_item->data[2].val1, fifo_item->data[2].val2);
-
-    printk("[%s] Pong: %p\n", now_str(), datalog_fifo._queue.data_q.head);
 
     rc = fs_write(&file, data, strlen(data));
     if (rc < 0) {
@@ -757,20 +738,23 @@ void spi_flash_thread(void) {
       goto out;
     }
 
-    printk("[%s] Pang: %p\n", now_str(), datalog_fifo._queue.data_q.head);
+    printk("Data: %s", data);
+
+    if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo)) {
+      rc = fs_close(&file);
+      printk("%s close: %d\n", fname, rc);
+    }
   }
 
 out:
   rc = fs_close(&file);
   printk("%s close: %d\n", fname, rc);
-  rc = fs_unmount(mp);
-  printk("%s unmount: %d\n", mp->mnt_point, rc);
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
-
+K_THREAD_STACK_DEFINE(my_stack_area, STACKSIZE);
 
 /***************************************************************
 *   Main
@@ -818,6 +802,15 @@ void main(void) {
   //        return;
   //}
 
+  
+  struct k_thread my_thread_data;
+
+  k_tid_t spi_flash_id = k_thread_create(&my_thread_data, my_stack_area,
+      K_THREAD_STACK_SIZEOF(my_stack_area),
+      spi_flash_thread,
+      NULL, NULL, NULL,
+      PRIORITY + 2, 0, K_NO_WAIT);
+
   // Main loop
   while (1) {
 
@@ -826,6 +819,13 @@ void main(void) {
 
     //gpio_pin_toggle(dev, 10);
 
-    k_msleep(2000);
+    if (datadisc_state == LOG) {
+      k_thread_start(spi_flash_id);
+    }
+    else {
+      k_thread_suspend(spi_flash_id);
+    }
+
+    k_msleep(20);
   }
 }
