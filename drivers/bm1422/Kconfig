@@ -1,0 +1,119 @@
+# 3-Axis, +/-1200uT Digital Magnetometer
+
+# Copyright (c) 2021 Griffin Adams
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig BM1422
+	bool "BM1422AGMV Three Axis I2C Magnetometer"
+	depends on I2C
+	help
+		Enable driver for BM1422 Three-Axis Digital Magnetometers.
+
+if BM1422
+
+module = BM1422
+module-str = BM1422
+source "subsys/logging/Kconfig.template.log_config"
+
+choice
+	prompt "Output Data Bit"
+	default BM1422_12_BIT
+
+	config BM1422_12_BIT
+		bool "12-bit Output"
+		  
+	config BM1422_14_BIT
+		bool "14-bit Output"
+		  
+endchoice
+
+choice
+	prompt "Averaging Filter Control"
+	default BM1422_AVC_4SAMPLES
+	
+	config BM1422_AVC_NONE
+		bool "No Averaging"
+	
+	config BM1422_AVC_2SAMPLES
+		bool "2 Samples Averaged"
+		
+	config BM1422_AVC_4SAMPLES
+		bool "4 Samples Averaged"
+	
+	config BM1422_AVC_8SAMPLES
+		bool "8 Samples Averaged"
+	
+	config BM1422_AVC_16SAMPLES
+		bool "16 Samples Averaged"
+		
+endchoice
+
+
+choice
+	prompt "Magnetometer sampling frequency (ODR)"
+	default BM1422_ODR_10HZ
+		
+	config BM1422_ODR_10HZ
+		bool "10 Hz"
+
+	config BM1422_ODR_20HZ
+		bool "20 Hz"
+
+	config BM1422_ODR_100HZ
+		bool "100 Hz"
+
+	config BM1422_ODR_1KHZ
+		bool "1000 Hz"
+		
+endchoice
+
+
+menuconfig BM1422_DREN
+	bool "DRDY Interrupt Pin"
+	
+config BM1422_DRP
+	bool "DRDY Interrupt Pin Level Control"
+	depends on BM1422_DREN
+	help
+		n: active LOW, y: active HIGH
+	
+
+choice
+	prompt "Trigger mode"
+	default BM1422_TRIGGER_OWN_THREAD
+	help
+	  Specify the type of triggering used by the driver.
+
+config BM1422_TRIGGER_NONE
+	bool "No trigger"
+
+config BM1422_TRIGGER_GLOBAL_THREAD
+	bool "Use global thread"
+	depends on GPIO
+	select BM1422_TRIGGER
+
+config BM1422_TRIGGER_OWN_THREAD
+	bool "Use own thread"
+	depends on GPIO
+	select BM1422_TRIGGER
+
+endchoice
+
+config BM1422_TRIGGER
+	bool
+
+config BM1422_THREAD_PRIORITY
+	int "Thread priority"
+	depends on BM1422_TRIGGER_OWN_THREAD && BM1422_TRIGGER
+	default 10
+	help
+		Priority of thread used by the driver to handle interrupts.
+
+config BM1422_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on BM1422_TRIGGER_OWN_THREAD && BM1422_TRIGGER
+	default 1024
+	help
+		Stack size of thread used by the driver to handle interrupts.
+
+endif # BM1422
