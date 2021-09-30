@@ -110,7 +110,8 @@ unsigned int soc_percent = 0;
 #define STACKSIZE 1024
 
 /* based on ODR of 6400 for 100ms */
-#define ACC_STACK 24576
+//#define ACC_STACK 24576
+#define ACC_STACK 12288
 
 /* scheduling priority used by each thread */
 #define PRIORITY 7
@@ -693,7 +694,15 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
 uint8_t fname[MAX_PATH_LEN];     // Buffer created outside thread to avoid stack overflow
 uint8_t data[MAX_PATH_LEN];   // Buffer created outside thread to avoid stack overflow
 
-extern void spi_flash_thread(void) {
+void spi_flash_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
 
   struct datalog_fifo_item_t *fifo_item;
   struct fs_mount_t *mp = &fs_mnt;
@@ -704,13 +713,13 @@ extern void spi_flash_thread(void) {
 
   log_start_time = k_uptime_get();
 
-  snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
-
   if (!mp->mnt_point) {
     printk("FAIL: mount id %u at %s\n", id, mp->mnt_point);
     return;
   }
   printk("%s mount\n", mp->mnt_point);
+
+  snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
 
   fs_file_t_init(&file);
 
@@ -723,6 +732,10 @@ extern void spi_flash_thread(void) {
   snprintf(data, sizeof(data), "SOL\n");
 
   rc = fs_write(&file, data, strlen(data));
+  if (rc < 0) {
+    printk("FAIL: write %s: %d\n", data, rc);
+    goto out;
+  }
 
   while (1) {
     fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
@@ -738,11 +751,10 @@ extern void spi_flash_thread(void) {
       goto out;
     }
 
-    printk("Data: %s", data);
+    //printk("Data: %s", data);
 
     if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo)) {
-      rc = fs_close(&file);
-      printk("%s close: %d\n", fname, rc);
+      goto out;
     }
   }
 
@@ -754,7 +766,6 @@ out:
 //K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
 //    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
-K_THREAD_STACK_DEFINE(my_stack_area, STACKSIZE);
 
 /***************************************************************
 *   Main
@@ -772,14 +783,6 @@ void main(void) {
   printk("Starting DataDisc v2\n");
 
   setup_disk();
-
-  err = usb_enable(NULL);
-  if (err != 0) {
-    LOG_ERR("Failed to enable USB");
-    return;
-  }
-
-  LOG_INF("The device is put in USB mass storage mode.\n");
 
   datadisc_state = IDLE;
 
@@ -802,14 +805,15 @@ void main(void) {
   //        return;
   //}
 
-  
-  struct k_thread my_thread_data;
+    
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
 
-  k_tid_t spi_flash_id = k_thread_create(&my_thread_data, my_stack_area,
-      K_THREAD_STACK_SIZEOF(my_stack_area),
-      spi_flash_thread,
-      NULL, NULL, NULL,
-      PRIORITY + 2, 0, K_NO_WAIT);
+  LOG_INF("The device is put in USB mass storage mode.\n");
+
 
   // Main loop
   while (1) {
@@ -819,13 +823,6 @@ void main(void) {
 
     //gpio_pin_toggle(dev, 10);
 
-    if (datadisc_state == LOG) {
-      k_thread_start(spi_flash_id);
-    }
-    else {
-      k_thread_suspend(spi_flash_id);
-    }
-
-    k_msleep(20);
+    k_msleep(200);
   }
 }
