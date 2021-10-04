@@ -110,8 +110,7 @@ unsigned int soc_percent = 0;
 #define STACKSIZE 1024
 
 /* based on ODR of 6400 for 100ms */
-//#define ACC_STACK 24576
-#define ACC_STACK 12288
+#define ACC_STACK 24576
 
 /* scheduling priority used by each thread */
 #define PRIORITY 7
@@ -682,12 +681,12 @@ void runtime_compute_thread(void) {
   while (1) {
     data_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    k_fifo_put(&datalog_fifo, data_item);
+    k_fifo_alloc_put(&datalog_fifo, data_item);
   }
 }
 
-K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+//K_THREAD_DEFINE(runtime_compute_id, ACC_STACK, runtime_compute_thread,
+//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
@@ -710,6 +709,7 @@ void spi_flash_thread(void) {
   unsigned int id = (uintptr_t)mp->storage_dev;
   uint64_t log_start_time;
   int rc;
+  int data_size = 0;
 
   log_start_time = k_uptime_get();
 
@@ -737,8 +737,16 @@ void spi_flash_thread(void) {
     goto out;
   }
 
+  rc = fs_sync(&file);
+  if (rc < 0) {
+    printk("FAIL: sync %s: %d\n", fname, rc);
+    goto out;
+  }
+
+  datadisc_state = LOG;
+
   while (1) {
-    fifo_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
     snprintf(data, sizeof(data), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
         fifo_item->data[0].val1, fifo_item->data[0].val2,
@@ -750,10 +758,25 @@ void spi_flash_thread(void) {
       printk("FAIL: write %s: %d\n", fname, rc);
       goto out;
     }
+    data_size += strlen(data);
 
     //printk("Data: %s", data);
+    //printk("Length: %d", strlen(data));
+
+    //if (data_size >= 512) {
+    //  rc = fs_sync(&file);
+    //  if (rc < 0) {
+    //    printk("FAIL: sync %s: %d\n", fname, rc);
+    //    goto out;
+    //  }
+    //  data_size = 0;
+    //}
 
     if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo)) {
+      goto out;
+    }
+
+    if ((uint64_t)k_uptime_get() - log_start_time > 10000) {
       goto out;
     }
   }
@@ -763,8 +786,8 @@ out:
   printk("%s close: %d\n", fname, rc);
 }
 
-//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
 /***************************************************************

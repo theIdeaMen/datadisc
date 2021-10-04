@@ -1,0 +1,5 @@
+#include <autoconf.h>
+
+data_store:
+  region: external_flash
+  size: CONFIG_PM_EXTERNAL_FLASH_SIZE

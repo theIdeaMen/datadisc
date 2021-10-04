@@ -10,7 +10,6 @@
 #include <zephyr/types.h>
 #include <device.h>
 #include <drivers/gpio.h>
-#include <drivers/spi.h>
 #include <drivers/i2c.h>
 #include <drivers/sensor.h>
 #include <sys/util.h>
@@ -23,106 +22,64 @@
 /*
  * BM1422 registers definition
  */
-#define BM1422_MAN_ID		0x00u  /* Manufacturer ID "Kion" */
-#define BM1422_PART_ID		0x01u  /* Silicon specific ID */
-#define BM1422_XADP_L		0x02u  /* X-axis ADP Output LSB */
-#define BM1422_XADP_H		0x03u  /* X-axis ADP Output MSB */
-#define BM1422_YADP_L		0x04u  /* Y-axis ADP Output LSB */
-#define BM1422_YADP_H		0x05u  /* Y-axis ADP Output MSB */
-#define BM1422_ZADP_L		0x06u  /* Z-axis ADP Output LSB */
-#define BM1422_ZADP_H		0x07u  /* Z-axis ADP Output MSB */
-#define BM1422_XOUT_L		0x08u  /* X-axis Accelerometer Output LSB */
-#define BM1422_XOUT_H		0x09u  /* X-axis Accelerometer Output MSB */
-#define BM1422_YOUT_L		0x0Au  /* Y-axis Accelerometer Output LSB */
-#define BM1422_YOUT_H		0x0Bu  /* Y-axis Accelerometer Output MSB */
-#define BM1422_ZOUT_L		0x0Cu  /* Z-axis Accelerometer Output LSB */
-#define BM1422_ZOUT_H		0x0Du  /* Z-axis Accelerometer Output MSB */
+#define BM1422_INFO_LO		0x0Du  /* Device Info Low Byte */
+#define BM1422_INFO_HI		0x0Eu  /* Device Info High Byte */
+#define BM1422_WHO_AM_I		0x0Fu  /* Supplier Recognition ID */
 
-#define BM1422_COTR		0x12u  /* Commmand Test Response */
-#define BM1422_WHO_AM_I		0x13u  /* Supplier Recognition */
-#define BM1422_TSCP		0x14u  /* Current Tilt Position */
-#define BM1422_TSPP		0x15u  /* Previous Tilt Position */
-#define BM1422_INS1		0x16u  /* Directional Tap Reporting */
-#define BM1422_INS2		0x17u  /* Interrupt Source */
-#define BM1422_INS3		0x18u  /* Motion Detection Reporting */
-#define BM1422_STATUS_REG	0x19u  /* Interrupt and Wake Status */
-#define BM1422_INT_REL		0x1Au  /* Interrupt Latch Release */
+#define BM1422_DATAX_LO		0x10u  /* X Channel Output Low Byte */
+#define BM1422_DATAX_HI		0x11u  /* X Channel Output High Byte */
+#define BM1422_DATAY_LO		0x12u  /* Y Channel Output Low Byte */
+#define BM1422_DATAY_HI		0x13u  /* Y Channel Output High Byte */
+#define BM1422_DATAZ_LO		0x14u  /* Z Channel Output Low Byte */
+#define BM1422_DATAZ_HI		0x15u  /* Z Channel Output High Byte */
+
+#define BM1422_STA1			0x18u  /* Status Register */
+
 #define BM1422_CNTL1		0x1Bu  /* Main Feature Controls */
-#define BM1422_CNTL2		0x1Cu  /* Tilt Controls */
-#define BM1422_CNTL3		0x1Du  /* Data Rate For Tilt, Tap, Wake */
-#define BM1422_CNTL4		0x1Eu  /* More Feature Set Controls */
-#define BM1422_CNTL5		0x1Fu  /* More Feature Set Controls */
-#define BM1422_CNTL6		0x20u  /* I2C Feature Set Controls */
-#define BM1422_ODCNTL		0x21u  /* Accelerometer Output Controls */
-#define BM1422_INC1		0x22u  /* Physical Interrupt Pin INT1 Controls */
-#define BM1422_INC2		0x23u  /* Wake/Sleep Engine Controls */
-#define BM1422_INC3		0x24u  /* Tap/Double-Tap Direction Controls */
-#define BM1422_INC4		0x25u  /* INT1 Routing Controls */
-#define BM1422_INC5		0x26u  /* Physical Interrupt Pin INT1 Controls */
-#define BM1422_INC6		0x27u  /* INT2 Routing Controls */
+#define BM1422_CNTL2		0x1Cu  /* Data Ready Controls */
+#define BM1422_CNTL3		0x1Du  /* Force Start Control */
 
-#define BM1422_TILT_TIMER	0x29u  /* Tilt Position State Timer */
-#define BM1422_TDTRC		0x2Au  /* Tap/Double-Tap Report Control */
-#define BM1422_TDTC		0x2Bu  /* Double Tap Detection Counter */
-#define BM1422_TTH		0x2Cu  /* Tap Threshold High */
-#define BM1422_TTL		0x2Du  /* Tap Threshold Low */
-#define BM1422_FTD		0x2Eu  /* Any Tap Detection Counter */
-#define BM1422_STD		0x2Fu  /* Double Tap Detection Counter */
-#define BM1422_TLT		0x30u  /* Tap Detection Time Limit */
-#define BM1422_TWS		0x31u  /* Tap Detection Window */
-#define BM1422_FFTH		0x32u  /* Free Fall Threshold */
-#define BM1422_FFC		0x33u  /* Free Fall Counter */
-#define BM1422_FFCNTL		0x34u  /* Free Fall Controls */
+#define BM1422_AVE_A		0x40u  /* Averaging Setting */
 
-#define BM1422_TILT_ANGLE_LL	0x37u  /* Tilt Angle Low Limit */
-#define BM1422_TILT_ANGLE_HL	0x38u  /* Tilt Angle High Limit */
-#define BM1422_HYST_SET		0x39u  /* Tilt Hysteresis Setting */
-#define BM1422_LP_CNTL1		0x3Au  /* Low Power Control 1 */
-#define BM1422_LP_CNTL2		0x3Bu  /* Low Power Control 2 */
+#define BM1422_CNTL4_LO		0x5Cu  /* Reset Low Byte */
+#define BM1422_CNTL4_HI		0x5Du  /* Reset High Byte */
 
-#define BM1422_WUFTH		0x49u  /* Wake-up Function Threshold */
-#define BM1422_BTSWUFTH		0x4Au  /* Wake/Sleep Function Threshold */
-#define BM1422_BTSTH		0x4Bu  /* Back-To-Sleep Function Threshold */
-#define BM1422_BTSC		0x4Cu  /* Sleep Debounce Counter */
-#define BM1422_WUFC		0x4Du  /* Wake Debounce Counter */
+#define BM1422_TEMP_LO		0x60u  /* Temperature Value Low Byte */
+#define BM1422_TEMP_HI		0x61u  /* Temperature Value High Byte */
 
-#define BM1422_SELF_TEST		0x5Du  /* Self-Test Enable */
-#define BM1422_BUF_CNTL1		0x5Eu  /* Buffer Sample Threshold */
-#define BM1422_BUF_CNTL2		0x5Fu  /* Buffer Operation Controls */
-#define BM1422_BUF_STATUS1	0x60u  /* Buffer Status (Level) */
-#define BM1422_BUF_STATUS2	0x61u  /* Buffer Status (Level, Trigger) */
-#define BM1422_BUF_CLEAR		0x62u  /* Buffer Clear */
-#define BM1422_BUF_READ		0x63u  /* Buffer Read */
+#define BM1422_OFFX_LO		0x6Cu  /* X channel Offset Value Low Byte */
+#define BM1422_OFFX_HI		0x6Du  /* X channel Offset Value High Byte */
 
-#define BM1422_ADP_CNTL1		0x64u  /* ADP Output Controls 1 */
-#define BM1422_ADP_CNTL2		0x65u  /* ADP Routing Controls */
-#define BM1422_ADP_CNTL3		0x66u  /* ADP Filter 1 Coefficient (1/A) */
-#define BM1422_ADP_CNTL4		0x67u  /* ADP Filter 1 Coefficient (B/A) */
-#define BM1422_ADP_CNTL5		0x68u  /* ADP Filter 1 Coefficient (B/A) */
-#define BM1422_ADP_CNTL6		0x69u  /* ADP Filter 1 Coefficient (B/A) */
-#define BM1422_ADP_CNTL7		0x6Au  /* ADP Filter 1 Coefficient (C/A) */
-#define BM1422_ADP_CNTL8		0x6Bu  /* ADP Filter 1 Coefficient (C/A) */
-#define BM1422_ADP_CNTL9		0x6Cu  /* ADP Filter 1 Coefficient (C/A) */
-#define BM1422_ADP_CNTL10	0x6Du  /* ADP Filter 1 Input Scale Shift */
-#define BM1422_ADP_CNTL11	0x6Eu  /* ADP Filter 2 (1/A) & Filter 1 Output Shift */
-#define BM1422_ADP_CNTL12	0x6Fu  /* ADP Filter 2 Coefficient (B/A) */
-#define BM1422_ADP_CNTL13	0x70u  /* ADP Filter 2 Coefficient (B/A) */
-#define BM1422_ADP_CNTL14	0x71u  /* Unused */
-#define BM1422_ADP_CNTL15	0x72u  /* Unused */
-#define BM1422_ADP_CNTL16	0x73u  /* Unused */
-#define BM1422_ADP_CNTL17	0x74u  /* Unused */
-#define BM1422_ADP_CNTL18	0x75u  /* ADP Filter 2 Input Scale Shift */
-#define BM1422_ADP_CNTL19	0x76u  /* ADP Filter 2 Output Scale Shift */
+#define BM1422_OFFY_LO		0x72u  /* Y channel Offset Value Low Byte */
+#define BM1422_OFFY_HI		0x73u  /* Y channel Offset Value High Byte */
+
+#define BM1422_OFFZ_LO		0x78u  /* Z channel Offset Value Low Byte */
+#define BM1422_OFFZ_HI		0x79u  /* Z channel Offset Value High Byte */
+
+#define BM1422_FINE_DATAX_LO	0x90u  /* X Channel Fine Output Low Byte */
+#define BM1422_FINE_DATAX_HI	0x91u  /* X Channel Fine Output High Byte */
+#define BM1422_FINE_DATAY_LO	0x92u  /* Y Channel Fine Output Low Byte */
+#define BM1422_FINE_DATAY_HI	0x93u  /* Y Channel Fine Output High Byte */
+#define BM1422_FINE_DATAZ_LO	0x94u  /* Z Channel Fine Output Low Byte */
+#define BM1422_FINE_DATAZ_HI	0x95u  /* Z Channel Fine Output High Byte */
+
+#define BM1422_GAIN_PARAX_LO	0x9Cu  /* Axis Interference Xch to Zch */
+#define BM1422_GAIN_PARAX_HI	0x9Du  /* Axis Interference Xch to Ych */
+#define BM1422_GAIN_PARAY_LO	0x9Eu  /* Axis Interference Ych to Zch */
+#define BM1422_GAIN_PARAY_HI	0x9Fu  /* Axis Interference Ych to Xch */
+
+#define BM1422_GAIN_PARAZ_LO	0xA0u  /* Axis Interference Zch to Ych */
+#define BM1422_GAIN_PARAZ_HI	0xA1u  /* Axis Interference Zch to Xch */
 
 /* Some register values */
-#define BM1422_MAN_ID_VAL        "Kion" /* Kionix ID */
-#define BM1422_PART_ID_VAL	0x33   /* Device ID */
-#define BM1422_WHO_AM_I_VAL	0x46u  /* Supplier Recognition ID */
+#define BM1422_MAN_ID_VAL        "?"	/* TBD */
+#define BM1422_PART_ID_VAL		0x33u   /* TBD */
+#define BM1422_WHO_AM_I_VAL		0x41u  	/* Supplier Recognition ID */
 
 
-#define BM1422_READ		0x01u
-#define BM1422_REG_READ(x)	(x)
-#define BM1422_REG_WRITE(x)	(x)
+#define BM1422_READ				0x01u
+#define BM1422_REG_READ(x)		(((x & 0xFF) << 1) | BM1422_READ)
+#define BM1422_REG_WRITE(x)		((x & 0xFF) << 1)
 #define BM1422_TO_I2C_REG(x)	((x) >> 1)
 
 #define PWRTWO(x)               (1 << (x))

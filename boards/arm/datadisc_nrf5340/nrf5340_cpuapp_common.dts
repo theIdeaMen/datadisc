@@ -11,6 +11,7 @@
 		zephyr,uart-mcumgr = &uart0;
 		zephyr,bt-mon-uart = &uart0;
 		zephyr,bt-c2h-uart = &uart0;
+		nordic,pm-ext-flash = &at25sl321;
 	};
 
 	leds {
