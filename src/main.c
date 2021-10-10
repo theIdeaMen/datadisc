@@ -599,7 +599,6 @@ void accel_beta_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
   struct sensor_value int_source;
 
@@ -622,7 +621,6 @@ void accel_beta_thread(void) {
     return;
   }
 
-  fifo_item.id = ACCEL_BETA_ID;
 
   while (1) {
     k_sem_take(&sem_b, K_FOREVER);
@@ -630,11 +628,21 @@ void accel_beta_thread(void) {
     sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+
+      struct accel_fifo_item_t fifo_item;
+
+      fifo_item.id = ACCEL_BETA_ID;
       fifo_item.timestamp = k_uptime_get();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-      k_fifo_alloc_put(&accel_fifo, &fifo_item);
+      size_t size = sizeof(struct accel_fifo_item_t);
+      char *mem_ptr = k_malloc(size);
+      __ASSERT_NO_MSG(mem_ptr != 0);
+
+      memcpy(mem_ptr, &fifo_item, size);
+
+      k_fifo_alloc_put(&accel_fifo, mem_ptr);
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
@@ -672,18 +680,20 @@ void runtime_compute_thread(void) {
   k_mutex_unlock(&init_mut);
 
   unsigned char buffer[150];
-  struct accel_fifo_item_t *fifo_item;
   size_t bytes_written;
   int rc;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
-    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
+    struct accel_fifo_item_t *fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
     snprintf(buffer, sizeof(buffer), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
         fifo_item->data[0].val1, fifo_item->data[0].val2,
         fifo_item->data[1].val1, fifo_item->data[1].val2,
         fifo_item->data[2].val1, fifo_item->data[2].val2);
+
+    k_free(fifo_item);
+    printk("Data: %s\n", buffer);
 
     rc = k_pipe_put(&datalog_pipe, buffer, strlen(buffer), &bytes_written, sizeof(struct message_header), K_NO_WAIT);
 
@@ -696,7 +706,7 @@ void runtime_compute_thread(void) {
     } else {
       /* All data sent */
     }
-    printk("Length sent: %d\n", bytes_written);
+    //printk("Length sent: %d\n", bytes_written);
   }
 }
 
@@ -784,7 +794,7 @@ void spi_flash_thread(void) {
     data_size += bytes_read;
 
     //printk("Data: %s\n", buffer);
-    printk("Length rcvd: %d\n", strlen(buffer));
+    //printk("Length rcvd: %d\n", strlen(buffer));
 
     //if (data_size >= 512) {
     //  rc = fs_sync(&file);
