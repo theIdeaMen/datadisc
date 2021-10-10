@@ -61,7 +61,7 @@ Machine_State datadisc_state = INIT;
 
 
 /* file system things */
-#define MAX_PATH_LEN 255
+#define MAX_PATH_LEN 150
 
 #if CONFIG_DISK_DRIVER_FLASH
 #include <storage/flash_map.h>
@@ -108,9 +108,6 @@ unsigned int soc_percent = 0;
 /* Thread things */
 /* size of stack area used by most threads */
 #define STACKSIZE 1024
-
-/* based on ODR of 6400 for 100ms */
-#define ACC_STACK 24576
 
 /* scheduling priority used by each thread */
 #define PRIORITY 7
@@ -482,19 +479,13 @@ void led_control_thread(void) {
 K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
-/* FIFO buffers */
+
+/* Pipe/FIFO buffers */
 K_FIFO_DEFINE(accel_fifo);
-K_FIFO_DEFINE(datalog_fifo);
+K_PIPE_DEFINE(datalog_pipe, 4096, 4);
 
 struct accel_fifo_item_t {
-  void *fifo_reserved; /* 1st word reserved for use by FIFO */
-  uint8_t id;
-  uint64_t timestamp;
-  struct sensor_value data[3];
-};
-
-struct datalog_fifo_item_t {
-  void *fifo_reserved; /* 1st word reserved for use by FIFO */
+  void *fifo_reserved;   /* 1st word reserved for use by FIFO */
   uint8_t id;
   uint64_t timestamp;
   struct sensor_value data[3];
@@ -575,7 +566,7 @@ void accel_alpha_thread(void) {
 
     sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    k_fifo_alloc_put(&accel_fifo, &fifo_item);
+    k_fifo_put(&accel_fifo, &fifo_item);
 
     if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
       k_sleep(K_MSEC(2000));
@@ -660,9 +651,14 @@ void accel_beta_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, ACC_STACK, accel_beta_thread,
+K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
+
+/* Pipe header */
+struct message_header {
+    size_t num_data_bytes; 
+};
 
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
@@ -675,23 +671,41 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct datalog_fifo_item_t *data_item;
+  unsigned char buffer[150];
+  struct accel_fifo_item_t *fifo_item;
+  size_t bytes_written;
+  int rc;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
-    data_item = k_fifo_get(&accel_fifo, K_FOREVER);
+    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    k_fifo_alloc_put(&datalog_fifo, data_item);
+    snprintf(buffer, sizeof(buffer), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
+        fifo_item->data[0].val1, fifo_item->data[0].val2,
+        fifo_item->data[1].val1, fifo_item->data[1].val2,
+        fifo_item->data[2].val1, fifo_item->data[2].val2);
+
+    rc = k_pipe_put(&datalog_pipe, buffer, strlen(buffer), &bytes_written, sizeof(struct message_header), K_NO_WAIT);
+
+    if (rc < 0) {
+      /* Incomplete message header sent */
+
+    } else if (bytes_written < strlen(buffer)) {
+      /* Some of the data was sent */
+
+    } else {
+      /* All data sent */
+    }
+    printk("Length sent: %d\n", bytes_written);
   }
 }
 
-//K_THREAD_DEFINE(runtime_compute_id, ACC_STACK, runtime_compute_thread,
-//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /* Q-SPI FLASH */
-uint8_t fname[MAX_PATH_LEN];     // Buffer created outside thread to avoid stack overflow
-uint8_t data[MAX_PATH_LEN];   // Buffer created outside thread to avoid stack overflow
+uint8_t fname[MAX_PATH_LEN];    // Buffer created outside thread to avoid stack overflow
 
 void spi_flash_thread(void) {
 
@@ -703,13 +717,15 @@ void spi_flash_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct datalog_fifo_item_t *fifo_item;
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
   uint64_t log_start_time;
   int rc;
-  int data_size = 0;
+  uint16_t data_size = 0;
+  size_t bytes_read;
+  uint8_t buffer[150];
+  struct message_header *header = (struct message_header *)buffer;
 
   log_start_time = k_uptime_get();
 
@@ -729,11 +745,11 @@ void spi_flash_thread(void) {
     goto out;
   }
 
-  snprintf(data, sizeof(data), "SOL\n");
+  snprintf(buffer, 5, "SOL\n");
 
-  rc = fs_write(&file, data, strlen(data));
+  rc = fs_write(&file, buffer, strlen(buffer));
   if (rc < 0) {
-    printk("FAIL: write %s: %d\n", data, rc);
+    printk("FAIL: write %s: %d\n", buffer, rc);
     goto out;
   }
 
@@ -746,22 +762,29 @@ void spi_flash_thread(void) {
   datadisc_state = LOG;
 
   while (1) {
-    fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    snprintf(data, sizeof(data), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
-        fifo_item->data[0].val1, fifo_item->data[0].val2,
-        fifo_item->data[1].val1, fifo_item->data[1].val2,
-        fifo_item->data[2].val1, fifo_item->data[2].val2);
+    rc = k_pipe_get(&datalog_pipe, buffer, sizeof(buffer), &bytes_read, sizeof(header), K_FOREVER);
 
-    rc = fs_write(&file, data, strlen(data));
+    if ((rc < 0) || (bytes_read < sizeof(header))) {
+      /* Incomplete message header received */
+      
+    } else if (header->num_data_bytes + sizeof(header) > bytes_read) {
+      /* Only some data was received */
+      
+    } else {
+      /* All data was received */
+      
+    }
+
+    rc = fs_write(&file, buffer, strlen(buffer));
     if (rc < 0) {
       printk("FAIL: write %s: %d\n", fname, rc);
       goto out;
     }
-    data_size += strlen(data);
+    data_size += bytes_read;
 
-    //printk("Data: %s", data);
-    //printk("Length: %d", strlen(data));
+    //printk("Data: %s\n", buffer);
+    printk("Length rcvd: %d\n", strlen(buffer));
 
     //if (data_size >= 512) {
     //  rc = fs_sync(&file);
@@ -772,7 +795,7 @@ void spi_flash_thread(void) {
     //  data_size = 0;
     //}
 
-    if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo)) {
+    if (datadisc_state != LOG && k_pipe_read_avail(&datalog_pipe) <= 0) {
       goto out;
     }
 
@@ -784,6 +807,15 @@ void spi_flash_thread(void) {
 out:
   rc = fs_close(&file);
   printk("%s close: %d\n", fname, rc);
+  datadisc_state = IDLE;
+
+  rc = usb_enable(NULL);
+  if (rc != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
+
+  LOG_INF("The device is put in USB mass storage mode.\n");
 }
 
 K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
@@ -829,13 +861,7 @@ void main(void) {
   //}
 
     
-  err = usb_enable(NULL);
-  if (err != 0) {
-    LOG_ERR("Failed to enable USB");
-    return;
-  }
-
-  LOG_INF("The device is put in USB mass storage mode.\n");
+  
 
 
   // Main loop
