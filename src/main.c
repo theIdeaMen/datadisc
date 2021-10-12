@@ -107,7 +107,7 @@ unsigned int soc_percent = 0;
 
 /* Thread things */
 /* size of stack area used by most threads */
-#define STACKSIZE 1024
+#define STACKSIZE 2048
 
 /* scheduling priority used by each thread */
 #define PRIORITY 7
@@ -121,36 +121,36 @@ unsigned int soc_percent = 0;
 *   Bluetooth Functions
 *
 ****************************************************************/
-#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
-#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+//#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
+//#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
-// Set Advertisement data.
-static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-};
+//// Set Advertisement data.
+//static const struct bt_data ad[] = {
+//    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+//};
 
-// Set Scan Response data
-static const struct bt_data sd[] = {
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-};
+//// Set Scan Response data
+//static const struct bt_data sd[] = {
+//    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+//};
 
-static void bt_ready(void) {
-  int err;
+//static void bt_ready(void) {
+//  int err;
 
-  printk("Bluetooth initialized\n");
+//  printk("Bluetooth initialized\n");
 
-  if (IS_ENABLED(CONFIG_SETTINGS)) {
-    settings_load();
-  }
+//  if (IS_ENABLED(CONFIG_SETTINGS)) {
+//    settings_load();
+//  }
 
-  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
-  if (err) {
-    printk("Advertising failed to start (err %d)\n", err);
-    return;
-  }
+//  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+//  if (err) {
+//    printk("Advertising failed to start (err %d)\n", err);
+//    return;
+//  }
 
-  printk("Advertising successfully started\n");
-}
+//  printk("Advertising successfully started\n");
+//}
 
 /***************************************************************
 *   Utility Functions
@@ -482,15 +482,20 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
 
 /* Pipe/FIFO buffers */
 K_FIFO_DEFINE(accel_fifo);
-K_PIPE_DEFINE(datalog_pipe, 4096, 4);
+K_FIFO_DEFINE(datalog_fifo);
 
 struct accel_fifo_item_t {
   void *fifo_reserved;   /* 1st word reserved for use by FIFO */
   uint8_t id;
   uint64_t timestamp;
   struct sensor_value data[3];
-};
+} __packed;
 
+struct datalog_fifo_item_t {
+  void *fifo_reserved;   /* 1st word reserved for use by FIFO */
+  size_t length;
+  uint8_t *data;
+} __packed;
 
 /* Accelerometers */
 #define ACCEL_ALPHA_DEVICE DT_LABEL(DT_INST(0, kionix_kx134_1211))
@@ -642,7 +647,7 @@ void accel_beta_thread(void) {
 
       memcpy(mem_ptr, &fifo_item, size);
 
-      k_fifo_alloc_put(&accel_fifo, mem_ptr);
+      k_fifo_put(&accel_fifo, mem_ptr);
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
@@ -663,11 +668,6 @@ K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-/* Pipe header */
-struct message_header {
-    size_t num_data_bytes; 
-};
-
 /* Thread for crunching data during runtime */
 void runtime_compute_thread(void) {
 
@@ -679,34 +679,35 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  unsigned char buffer[150];
-  size_t bytes_written;
-  int rc;
+  uint8_t buffer[150];
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
+
     struct accel_fifo_item_t *fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
 
-    snprintf(buffer, sizeof(buffer), "%llu,%d,%d,%d,%d,%d,%d\n", fifo_item->timestamp,
+    snprintf(buffer, sizeof(buffer), "%02X,%llu,%d,%d,%d,%d,%d,%d\n", 
+        fifo_item->id, fifo_item->timestamp,
         fifo_item->data[0].val1, fifo_item->data[0].val2,
         fifo_item->data[1].val1, fifo_item->data[1].val2,
         fifo_item->data[2].val1, fifo_item->data[2].val2);
 
     k_free(fifo_item);
-    printk("Data: %s\n", buffer);
+    printk("Data: %s", buffer);
 
-    rc = k_pipe_put(&datalog_pipe, buffer, strlen(buffer), &bytes_written, sizeof(struct message_header), K_NO_WAIT);
+    /* Send the string to the FLASH write thread */
+    struct datalog_fifo_item_t data_item;
 
-    if (rc < 0) {
-      /* Incomplete message header sent */
+    data_item.length = strlen(buffer);
+    data_item.data = buffer;
 
-    } else if (bytes_written < strlen(buffer)) {
-      /* Some of the data was sent */
+    size_t size = sizeof(struct datalog_fifo_item_t);
+    char *mem_ptr = k_malloc(size);
+    __ASSERT_NO_MSG(mem_ptr != 0);
 
-    } else {
-      /* All data sent */
-    }
-    //printk("Length sent: %d\n", bytes_written);
+    memcpy(mem_ptr, &data_item, size);
+
+    k_fifo_put(&datalog_fifo, mem_ptr);
   }
 }
 
@@ -733,9 +734,7 @@ void spi_flash_thread(void) {
   uint64_t log_start_time;
   int rc;
   uint16_t data_size = 0;
-  size_t bytes_read;
   uint8_t buffer[150];
-  struct message_header *header = (struct message_header *)buffer;
 
   log_start_time = k_uptime_get();
 
@@ -773,25 +772,16 @@ void spi_flash_thread(void) {
 
   while (1) {
 
-    rc = k_pipe_get(&datalog_pipe, buffer, sizeof(buffer), &bytes_read, sizeof(header), K_FOREVER);
+    struct datalog_fifo_item_t *data_item = k_fifo_get(&datalog_fifo, K_FOREVER);
 
-    if ((rc < 0) || (bytes_read < sizeof(header))) {
-      /* Incomplete message header received */
-      
-    } else if (header->num_data_bytes + sizeof(header) > bytes_read) {
-      /* Only some data was received */
-      
-    } else {
-      /* All data was received */
-      
-    }
+    rc = fs_write(&file, data_item->data, data_item->length);
+    data_size += data_item->length;
+    k_free(data_item);
 
-    rc = fs_write(&file, buffer, strlen(buffer));
     if (rc < 0) {
       printk("FAIL: write %s: %d\n", fname, rc);
       goto out;
     }
-    data_size += bytes_read;
 
     //printk("Data: %s\n", buffer);
     //printk("Length rcvd: %d\n", strlen(buffer));
@@ -804,8 +794,9 @@ void spi_flash_thread(void) {
     //  }
     //  data_size = 0;
     //}
+    //k_msleep(20);
 
-    if (datadisc_state != LOG && k_pipe_read_avail(&datalog_pipe) <= 0) {
+    if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo) != 0) {
       goto out;
     }
 
