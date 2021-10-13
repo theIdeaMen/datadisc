@@ -604,6 +604,8 @@ void accel_beta_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
+  k_thread_system_pool_assign(k_current_get());
+
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
   struct sensor_value int_source;
 
@@ -647,7 +649,9 @@ void accel_beta_thread(void) {
 
       memcpy(mem_ptr, &fifo_item, size);
 
-      k_fifo_put(&accel_fifo, mem_ptr);
+      if (k_fifo_alloc_put(&accel_fifo, mem_ptr)) {
+        printf("Accel Beta thread out of memory\n");
+      }
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
@@ -679,6 +683,8 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
+  k_thread_system_pool_assign(k_current_get());
+
   uint8_t buffer[150];
 
   // TODO: Accel averaging, spin rate, etc.
@@ -693,7 +699,6 @@ void runtime_compute_thread(void) {
         fifo_item->data[2].val1, fifo_item->data[2].val2);
 
     k_free(fifo_item);
-    printk("Data: %s", buffer);
 
     /* Send the string to the FLASH write thread */
     struct datalog_fifo_item_t data_item;
@@ -707,7 +712,9 @@ void runtime_compute_thread(void) {
 
     memcpy(mem_ptr, &data_item, size);
 
-    k_fifo_put(&datalog_fifo, mem_ptr);
+    if (k_fifo_alloc_put(&datalog_fifo, mem_ptr)) {
+      printf("Runtime compute thread out of memory\n");
+    }
   }
 }
 
@@ -773,6 +780,8 @@ void spi_flash_thread(void) {
   while (1) {
 
     struct datalog_fifo_item_t *data_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+
+        printk("Data: %s", data_item->data);
 
     rc = fs_write(&file, data_item->data, data_item->length);
     data_size += data_item->length;
