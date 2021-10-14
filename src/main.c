@@ -694,8 +694,13 @@ void runtime_compute_thread(void) {
         fifo_item.data[2].val1, fifo_item.data[2].val2);
 
     /* Send the string to the FLASH write thread */
+
     data_item.length = strlen(buffer);
-    data_item.data = buffer;
+    uint8_t *mem_ptr = k_malloc(data_item.length);
+    __ASSERT_NO_MSG(mem_ptr != 0);
+
+    memcpy(mem_ptr, buffer, data_item.length);
+    data_item.data = mem_ptr;
 
     while (k_msgq_put(&datalog_fifo, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
@@ -773,6 +778,7 @@ void spi_flash_thread(void) {
     printk("DATA: %s", data_item.data);
 
     rc = fs_write(&file, data_item.data, data_item.length);
+    k_free(data_item.data);
     
     if (rc < 0) {
       printk("FAIL: write %s: %d\n", fname, rc);
