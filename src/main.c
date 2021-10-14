@@ -480,10 +480,8 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-/* Pipe/FIFO buffers */
-K_FIFO_DEFINE(accel_fifo);
-K_FIFO_DEFINE(datalog_fifo);
 
+/* Pipe/FIFO buffers */
 struct accel_fifo_item_t {
   void *fifo_reserved;   /* 1st word reserved for use by FIFO */
   uint8_t id;
@@ -496,6 +494,10 @@ struct datalog_fifo_item_t {
   size_t length;
   uint8_t *data;
 } __packed;
+
+K_MSGQ_DEFINE(accel_fifo, sizeof(struct accel_fifo_item_t), 10, 4);
+K_MSGQ_DEFINE(datalog_fifo, sizeof(struct datalog_fifo_item_t), 100, 4);
+
 
 /* Accelerometers */
 #define ACCEL_ALPHA_DEVICE DT_LABEL(DT_INST(0, kionix_kx134_1211))
@@ -571,7 +573,7 @@ void accel_alpha_thread(void) {
 
     sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-    k_fifo_put(&accel_fifo, &fifo_item);
+    //k_fifo_put(&accel_fifo, &fifo_item);
 
     if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
       k_sleep(K_MSEC(2000));
@@ -604,10 +606,9 @@ void accel_beta_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  k_thread_system_pool_assign(k_current_get());
-
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
   struct sensor_value int_source;
+  struct accel_fifo_item_t fifo_item;
 
   if (!dev) {
     printf("Devicetree has no kionix,kx134-1211 node\n");
@@ -628,6 +629,7 @@ void accel_beta_thread(void) {
     return;
   }
 
+  fifo_item.id = ACCEL_BETA_ID;
 
   while (1) {
     k_sem_take(&sem_b, K_FOREVER);
@@ -636,21 +638,14 @@ void accel_beta_thread(void) {
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
 
-      struct accel_fifo_item_t fifo_item;
-
-      fifo_item.id = ACCEL_BETA_ID;
       fifo_item.timestamp = k_uptime_get();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
-      size_t size = sizeof(struct accel_fifo_item_t);
-      char *mem_ptr = k_malloc(size);
-      __ASSERT_NO_MSG(mem_ptr != 0);
-
-      memcpy(mem_ptr, &fifo_item, size);
-
-      if (k_fifo_alloc_put(&accel_fifo, mem_ptr)) {
-        printf("Accel Beta thread out of memory\n");
+      /* send data to consumers */
+      while (k_msgq_put(&accel_fifo, &fifo_item, K_NO_WAIT) != 0) {
+        /* message queue is full: purge old data & try again */
+        k_msgq_purge(&accel_fifo);
       }
     }
 
@@ -683,37 +678,28 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  k_thread_system_pool_assign(k_current_get());
-
   uint8_t buffer[150];
+  struct datalog_fifo_item_t data_item;
+  struct accel_fifo_item_t fifo_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
 
-    struct accel_fifo_item_t *fifo_item = k_fifo_get(&accel_fifo, K_FOREVER);
+    k_msgq_get(&accel_fifo, &fifo_item, K_FOREVER);
 
     snprintf(buffer, sizeof(buffer), "%02X,%llu,%d,%d,%d,%d,%d,%d\n", 
-        fifo_item->id, fifo_item->timestamp,
-        fifo_item->data[0].val1, fifo_item->data[0].val2,
-        fifo_item->data[1].val1, fifo_item->data[1].val2,
-        fifo_item->data[2].val1, fifo_item->data[2].val2);
-
-    k_free(fifo_item);
+        fifo_item.id, fifo_item.timestamp,
+        fifo_item.data[0].val1, fifo_item.data[0].val2,
+        fifo_item.data[1].val1, fifo_item.data[1].val2,
+        fifo_item.data[2].val1, fifo_item.data[2].val2);
 
     /* Send the string to the FLASH write thread */
-    struct datalog_fifo_item_t data_item;
-
     data_item.length = strlen(buffer);
     data_item.data = buffer;
 
-    size_t size = sizeof(struct datalog_fifo_item_t);
-    char *mem_ptr = k_malloc(size);
-    __ASSERT_NO_MSG(mem_ptr != 0);
-
-    memcpy(mem_ptr, &data_item, size);
-
-    if (k_fifo_alloc_put(&datalog_fifo, mem_ptr)) {
-      printf("Runtime compute thread out of memory\n");
+    while (k_msgq_put(&datalog_fifo, &data_item, K_NO_WAIT) != 0) {
+      /* message queue is full: purge old data & try again */
+      k_msgq_purge(&datalog_fifo);
     }
   }
 }
@@ -735,6 +721,8 @@ void spi_flash_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
+  k_thread_system_pool_assign(k_current_get());
+
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
@@ -742,6 +730,7 @@ void spi_flash_thread(void) {
   int rc;
   uint16_t data_size = 0;
   uint8_t buffer[150];
+  struct datalog_fifo_item_t data_item;
 
   log_start_time = k_uptime_get();
 
@@ -779,18 +768,17 @@ void spi_flash_thread(void) {
 
   while (1) {
 
-    struct datalog_fifo_item_t *data_item = k_fifo_get(&datalog_fifo, K_FOREVER);
+    k_msgq_get(&datalog_fifo, &data_item, K_FOREVER);
 
-        printk("Data: %s", data_item->data);
+    printk("DATA: %s", data_item.data);
 
-    rc = fs_write(&file, data_item->data, data_item->length);
-    data_size += data_item->length;
-    k_free(data_item);
-
+    rc = fs_write(&file, data_item.data, data_item.length);
+    
     if (rc < 0) {
       printk("FAIL: write %s: %d\n", fname, rc);
       goto out;
     }
+    data_size += data_item.length;
 
     //printk("Data: %s\n", buffer);
     //printk("Length rcvd: %d\n", strlen(buffer));
@@ -805,7 +793,7 @@ void spi_flash_thread(void) {
     //}
     //k_msleep(20);
 
-    if (datadisc_state != LOG && k_fifo_is_empty(&datalog_fifo) != 0) {
+    if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_fifo) <= 0) {
       goto out;
     }
 
