@@ -488,19 +488,19 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
 
 
 /* MSGQ buffers */
-struct accel_fifo_item_t {
+struct accel_msgq_item_t {
   uint8_t id;
   uint64_t timestamp;
   struct sensor_value data[3];
 } __packed;
 
-struct datalog_fifo_item_t {
+struct datalog_msgq_item_t {
   size_t length;
   uint8_t data[150];
 } __packed;
 
-K_MSGQ_DEFINE(accel_fifo, sizeof(struct accel_fifo_item_t), 100, 4);
-K_MSGQ_DEFINE(datalog_fifo, sizeof(struct datalog_fifo_item_t), 500, 4);
+K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 100, 4);
+K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 1000, 4);
 
 
 /* Accelerometers */
@@ -536,7 +536,7 @@ void accel_alpha_thread(void) {
 
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
   struct sensor_value int_source;
-  struct accel_fifo_item_t fifo_item;
+  struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
     printf("Devicetree has no kionix,kx134-1211 node\n");
@@ -557,7 +557,7 @@ void accel_alpha_thread(void) {
     return;
   }
 
-  fifo_item.id = ACCEL_ALPHA_ID;
+  msgq_item.id = ACCEL_ALPHA_ID;
 
   while (1) {
     k_sem_take(&sem_a, K_FOREVER);
@@ -566,21 +566,21 @@ void accel_alpha_thread(void) {
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
 
-      fifo_item.timestamp = uptime_get_us();
+      msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
 
       /* send data to consumers */
-      while (k_msgq_put(&accel_fifo, &fifo_item, K_NO_WAIT) != 0) {
+      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
         /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_fifo);
+        k_msgq_purge(&accel_msgq);
       }
     }
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -606,7 +606,7 @@ void accel_beta_thread(void) {
 
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
   struct sensor_value int_source;
-  struct accel_fifo_item_t fifo_item;
+  struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
     printf("Devicetree has no kionix,kx134-1211 node\n");
@@ -627,8 +627,6 @@ void accel_beta_thread(void) {
     return;
   }
 
-  fifo_item.id = ACCEL_BETA_ID;
-
   while (1) {
     k_sem_take(&sem_b, K_FOREVER);
 
@@ -636,27 +634,37 @@ void accel_beta_thread(void) {
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
 
-      fifo_item.timestamp = uptime_get_us();
+      msgq_item.id = ACCEL_BETA_ID;
+      msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
 
       /* send data to consumers */
-      while (k_msgq_put(&accel_fifo, &fifo_item, K_NO_WAIT) != 0) {
+      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
         /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_fifo);
+        k_msgq_purge(&accel_msgq);
       }
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
-      printk("[%s] Double Tap!\n", now_str());
+     
+      msgq_item.id = 0x00;
+      msgq_item.timestamp = uptime_get_us();
 
       /* Toggle DataDisc State */
-      if (datadisc_state == IDLE) {
-        datadisc_state = LOG;
+      //if (datadisc_state == IDLE) {
+      //  datadisc_state = LOG;
+      //} else {
+      //  datadisc_state = IDLE;
+      //}
+
+      /* send data to consumers */
+      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+        /* message queue is full: purge old data & try again */
+        k_msgq_purge(&accel_msgq);
       }
-      else {
-        datadisc_state = IDLE;
-      }
+
+      printk("[%s] Double Tap!\n", now_str());
     }
   }
 }
@@ -676,25 +684,34 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  uint8_t buffer[150];
-  struct datalog_fifo_item_t data_item;
-  struct accel_fifo_item_t fifo_item;
+  struct datalog_msgq_item_t data_item;
+  struct accel_msgq_item_t msgq_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
 
-    k_msgq_get(&accel_fifo, &fifo_item, K_FOREVER);
+    k_msgq_get(&accel_msgq, &msgq_item, K_FOREVER);
 
-    data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d,%d,%d,%d\n", 
-        fifo_item.id, fifo_item.timestamp,
-        fifo_item.data[0].val1, fifo_item.data[0].val2,
-        fifo_item.data[1].val1, fifo_item.data[1].val2,
-        fifo_item.data[2].val1, fifo_item.data[2].val2);
+    switch (msgq_item.id) {
+    case 0x00:
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,double tap\n",
+          msgq_item.id, msgq_item.timestamp);
+      break;
+
+    case 0x1A:
+    case 0x2B:
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d,%d,%d,%d\n",
+          msgq_item.id, msgq_item.timestamp,
+          msgq_item.data[0].val1, msgq_item.data[0].val2,
+          msgq_item.data[1].val1, msgq_item.data[1].val2,
+          msgq_item.data[2].val1, msgq_item.data[2].val2);
+      break;
+    }
 
     /* Send the string to the FLASH write thread */
-    while (k_msgq_put(&datalog_fifo, &data_item, K_NO_WAIT) != 0) {
+    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
-      k_msgq_purge(&datalog_fifo);
+      k_msgq_purge(&datalog_msgq);
     }
   }
 }
@@ -718,6 +735,8 @@ void spi_flash_thread(void) {
 
   k_thread_system_pool_assign(k_current_get());
 
+  //goto out;
+
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
@@ -725,7 +744,7 @@ void spi_flash_thread(void) {
   int rc;
   uint16_t data_size = 0;
   uint8_t buffer[150];
-  struct datalog_fifo_item_t data_item;
+  struct datalog_msgq_item_t data_item;
 
   log_start_time = k_uptime_get();
 
@@ -763,7 +782,7 @@ void spi_flash_thread(void) {
 
   while (1) {
 
-    k_msgq_get(&datalog_fifo, &data_item, K_FOREVER);
+    k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
 
     //printk("DATA: %s", data_item.data);
 
@@ -778,7 +797,7 @@ void spi_flash_thread(void) {
     //printk("Data: %s\n", buffer);
     //printk("Length rcvd: %d\n", strlen(buffer));
 
-    //if (data_size >= 512) {
+    //if (data_size >= 256) {
     //  rc = fs_sync(&file);
     //  if (rc < 0) {
     //    printk("FAIL: sync %s: %d\n", fname, rc);
@@ -788,11 +807,11 @@ void spi_flash_thread(void) {
     //}
     //k_msleep(20);
 
-    if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_fifo) <= 0) {
+    if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
       goto out;
     }
 
-    if ((uint64_t)k_uptime_get() - log_start_time > 10000) {
+    if ((uint64_t)k_uptime_get() - log_start_time > 30000 && k_msgq_num_used_get(&datalog_msgq) <= 0) {
       goto out;
     }
   }
