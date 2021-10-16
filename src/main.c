@@ -163,6 +163,12 @@ static void wait_on_log_flushed(void) {
   }
 }
 
+uint64_t uptime_get_us(void) {
+
+  return k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC;
+
+}
+
 static const char *now_str(void) {
   static char buf[16]; /* ...HH:MM:SS.MMM */
   uint32_t now = k_uptime_get();
@@ -481,22 +487,20 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
 
 
 
-/* Pipe/FIFO buffers */
+/* MSGQ buffers */
 struct accel_fifo_item_t {
-  void *fifo_reserved;   /* 1st word reserved for use by FIFO */
   uint8_t id;
   uint64_t timestamp;
   struct sensor_value data[3];
 } __packed;
 
 struct datalog_fifo_item_t {
-  void *fifo_reserved;   /* 1st word reserved for use by FIFO */
   size_t length;
-  uint8_t *data;
+  uint8_t data[150];
 } __packed;
 
-K_MSGQ_DEFINE(accel_fifo, sizeof(struct accel_fifo_item_t), 10, 4);
-K_MSGQ_DEFINE(datalog_fifo, sizeof(struct datalog_fifo_item_t), 100, 4);
+K_MSGQ_DEFINE(accel_fifo, sizeof(struct accel_fifo_item_t), 100, 4);
+K_MSGQ_DEFINE(datalog_fifo, sizeof(struct datalog_fifo_item_t), 500, 4);
 
 
 /* Accelerometers */
@@ -512,16 +516,12 @@ K_SEM_DEFINE(sem_b, 0, 1);
 
 static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
-  enum sensor_trigger_type type = trigger->type;
-
-  if (type == SENSOR_TRIG_DATA_READY) {
-    if (sensor_sample_fetch(dev)) {
-      printf("sensor_sample_fetch failed\n");
-      return;
-    }
-
-    k_sem_give(&sem_a);
+  if (sensor_sample_fetch(dev)) {
+    printf("sensor_sample_fetch failed\n");
+    return;
   }
+
+  k_sem_give(&sem_a);
 }
 
 void accel_alpha_thread(void) {
@@ -534,8 +534,9 @@ void accel_alpha_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_fifo_item_t fifo_item;
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
+  struct sensor_value int_source;
+  struct accel_fifo_item_t fifo_item;
 
   if (!dev) {
     printf("Devicetree has no kionix,kx134-1211 node\n");
@@ -547,42 +548,39 @@ void accel_alpha_thread(void) {
   }
 
   struct sensor_trigger trig = {
-      .type = SENSOR_TRIG_DATA_READY,
+      .type = KX134_SENSOR_TRIG_ANY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-    if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
-      printf("Could not set trigger\n");
-      return;
-    }
+  if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
+    printf("Could not set trigger\n");
+    return;
   }
 
   fifo_item.id = ACCEL_ALPHA_ID;
 
   while (1) {
-    if (IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-      k_sem_take(&sem_a, K_FOREVER);
-    } else {
-      if (sensor_sample_fetch(dev)) {
-        printf("sensor_sample_fetch failed\n");
+    k_sem_take(&sem_a, K_FOREVER);
+
+    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
+
+    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+
+      fifo_item.timestamp = uptime_get_us();
+
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
+
+      /* send data to consumers */
+      while (k_msgq_put(&accel_fifo, &fifo_item, K_NO_WAIT) != 0) {
+        /* message queue is full: purge old data & try again */
+        k_msgq_purge(&accel_fifo);
       }
-    }
-
-    fifo_item.timestamp = k_uptime_get();
-
-    sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
-
-    //k_fifo_put(&accel_fifo, &fifo_item);
-
-    if (!IS_ENABLED(CONFIG_KX134_TRIGGER)) {
-      k_sleep(K_MSEC(2000));
     }
   }
 }
 
-//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -638,7 +636,7 @@ void accel_beta_thread(void) {
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
 
-      fifo_item.timestamp = k_uptime_get();
+      fifo_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, fifo_item.data);
 
@@ -687,21 +685,13 @@ void runtime_compute_thread(void) {
 
     k_msgq_get(&accel_fifo, &fifo_item, K_FOREVER);
 
-    snprintf(buffer, sizeof(buffer), "%02X,%llu,%d,%d,%d,%d,%d,%d\n", 
+    data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d,%d,%d,%d\n", 
         fifo_item.id, fifo_item.timestamp,
         fifo_item.data[0].val1, fifo_item.data[0].val2,
         fifo_item.data[1].val1, fifo_item.data[1].val2,
         fifo_item.data[2].val1, fifo_item.data[2].val2);
 
     /* Send the string to the FLASH write thread */
-
-    data_item.length = strlen(buffer);
-    uint8_t *mem_ptr = k_malloc(data_item.length);
-    __ASSERT_NO_MSG(mem_ptr != 0);
-
-    memcpy(mem_ptr, buffer, data_item.length);
-    data_item.data = mem_ptr;
-
     while (k_msgq_put(&datalog_fifo, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
       k_msgq_purge(&datalog_fifo);
@@ -775,10 +765,9 @@ void spi_flash_thread(void) {
 
     k_msgq_get(&datalog_fifo, &data_item, K_FOREVER);
 
-    printk("DATA: %s", data_item.data);
+    //printk("DATA: %s", data_item.data);
 
     rc = fs_write(&file, data_item.data, data_item.length);
-    k_free(data_item.data);
     
     if (rc < 0) {
       printk("FAIL: write %s: %d\n", fname, rc);
