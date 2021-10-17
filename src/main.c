@@ -499,8 +499,8 @@ struct datalog_msgq_item_t {
   uint8_t data[150];
 } __packed;
 
-K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 100, 4);
-K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 1000, 4);
+K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 2000, 4);
+K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 100, 4);
 
 
 /* Accelerometers */
@@ -628,7 +628,9 @@ void accel_beta_thread(void) {
   }
 
   while (1) {
+
     k_sem_take(&sem_b, K_FOREVER);
+    //k_sem_take(&sem_b, K_MSEC(50));
 
     sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
 
@@ -638,16 +640,10 @@ void accel_beta_thread(void) {
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
-
-      /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
-      }
     }
 
     if (KX134_INS2_DTS(int_source.val1)) {
-     
+
       msgq_item.id = 0x00;
       msgq_item.timestamp = uptime_get_us();
 
@@ -658,13 +654,13 @@ void accel_beta_thread(void) {
       //  datadisc_state = IDLE;
       //}
 
-      /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
-      }
-
       printk("[%s] Double Tap!\n", now_str());
+    }
+
+    /* send data to consumers */
+    while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+      /* message queue is full: purge old data & try again */
+      k_msgq_purge(&accel_msgq);
     }
   }
 }
@@ -706,12 +702,19 @@ void runtime_compute_thread(void) {
           msgq_item.data[1].val1, msgq_item.data[1].val2,
           msgq_item.data[2].val1, msgq_item.data[2].val2);
       break;
+
+    case 0xFF:
+    default:
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,no data\n",
+          msgq_item.id, msgq_item.timestamp);
+      break;
     }
 
     /* Send the string to the FLASH write thread */
-    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
+    while (k_msgq_put(&datalog_msgq, &data_item, K_FOREVER) != 0) {
       /* message queue is full: purge old data & try again */
       k_msgq_purge(&datalog_msgq);
+      printk("%llu\n", msgq_item.timestamp);
     }
   }
 }
@@ -784,7 +787,7 @@ void spi_flash_thread(void) {
 
     k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
 
-    //printk("DATA: %s", data_item.data);
+    //printk("%s", data_item.data);
 
     rc = fs_write(&file, data_item.data, data_item.length);
     
@@ -811,7 +814,7 @@ void spi_flash_thread(void) {
       goto out;
     }
 
-    if ((uint64_t)k_uptime_get() - log_start_time > 30000 && k_msgq_num_used_get(&datalog_msgq) <= 0) {
+    if ((uint64_t)k_uptime_get() - log_start_time > 20000) {
       goto out;
     }
   }
