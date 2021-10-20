@@ -169,6 +169,11 @@ uint64_t uptime_get_us(void) {
 
 }
 
+static inline int32_t sensor_value_to_32(const struct sensor_value *val)
+{
+	return val->val1 * 1000000 + val->val2;
+}
+
 static const char *now_str(void) {
   static char buf[16]; /* ...HH:MM:SS.MMM */
   uint32_t now = k_uptime_get();
@@ -689,6 +694,7 @@ void runtime_compute_thread(void) {
   struct accel_msgq_item_t msgq_item;
   struct datalog_msgq_item_t data_item;
   struct datalog_msgq_item_t throw_away_item;
+  int32_t x_value, y_value, z_value;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
@@ -703,18 +709,12 @@ void runtime_compute_thread(void) {
 
     case 0x1A:
     case 0x2B:
-      //data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d,%d,%d,%d\n",
-      //    msgq_item.id, msgq_item.timestamp,
-      //    msgq_item.data[0].val1, msgq_item.data[0].val2,
-      //    msgq_item.data[1].val1, msgq_item.data[1].val2,
-      //    msgq_item.data[2].val1, msgq_item.data[2].val2);
-      //break;
+      x_value = sensor_value_to_32(&msgq_item.data[0]);
+      y_value = sensor_value_to_32(&msgq_item.data[1]);
+      z_value = sensor_value_to_32(&msgq_item.data[2]);
 
       data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d\n",
-          msgq_item.id, msgq_item.timestamp,
-          (uint32_t)(sensor_value_to_double(&msgq_item.data[0])*100000.0),
-          (uint32_t)(sensor_value_to_double(&msgq_item.data[1])*100000.0),
-          (uint32_t)(sensor_value_to_double(&msgq_item.data[2])*100000.0));
+          msgq_item.id, msgq_item.timestamp, x_value, y_value, z_value);
       break;
 
     case 0xFF:
@@ -812,10 +812,7 @@ void spi_flash_thread(void) {
     }
     data_size += data_item.length;
 
-    //printk("Data: %s\n", buffer);
-    //printk("Length rcvd: %d\n", strlen(buffer));
-
-    //if (data_size >= 256) {
+    //if (data_size >= 4096) {
     //  rc = fs_sync(&file);
     //  if (rc < 0) {
     //    printk("FAIL: sync %s: %d\n", fname, rc);
@@ -823,7 +820,6 @@ void spi_flash_thread(void) {
     //  }
     //  data_size = 0;
     //}
-    //k_msleep(20);
 
     if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
       goto out;
@@ -835,9 +831,13 @@ void spi_flash_thread(void) {
   }
 
 out:
+  datadisc_state = IDLE;
+
   rc = fs_close(&file);
   printk("%s close: %d\n", fname, rc);
-  datadisc_state = IDLE;
+
+  k_msgq_purge(&accel_msgq);
+  k_msgq_purge(&datalog_msgq);
 
   rc = usb_enable(NULL);
   if (rc != 0) {
