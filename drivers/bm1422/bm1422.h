@@ -180,7 +180,6 @@ struct bm1422_data {
 	struct sensor_trigger drdy_trigger;
 
 	uint8_t int_config;
-	uint8_t int_source;
 
 #if defined(CONFIG_BM1422_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_BM1422_THREAD_STACK_SIZE);
