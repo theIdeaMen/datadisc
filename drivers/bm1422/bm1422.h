@@ -116,11 +116,10 @@
 
 
 /* BM1422 scale factors from specifications */
-#define BM1422_ACCEL_8G_LSB_PER_G	4167
-#define BM1422_ACCEL_16G_LSB_PER_G	2041
-#define BM1422_ACCEL_32G_LSB_PER_G	1020
-#define BM1422_ACCEL_64G_LSB_PER_G	513
-
+#define BM1422_MAG_12BIT_LSB_PER_MILLI_T	5953
+#define BM1422_MAG_14BIT_LSB_PER_MILLI_T	23810
+#define BM1422_12BIT_LSB_PER_MILLI_DEGREE_C	32760		// Maybe? Datasheet sucks
+#define BM1422_14BIT_LSB_PER_MILLI_DEGREE_C	131064		// Maybe? Datasheet sucks
 
 
 enum bm1422_op_mode {
@@ -158,16 +157,16 @@ struct bm1422_data {
 	const struct device *bus;
 
 	union {
-		unt16_t mag_xyz[3];
+		int16_t mag_xyz[3];
 		struct {
-			unt16_t mag_x;
-			unt16_t mag_y;
-			unt16_t mag_z;
+			int16_t mag_x;
+			int16_t mag_y;
+			int16_t mag_z;
 		};
 	} __packed;
 
-	unt16_t temperature;
-	uint8_t selected_range;
+	int16_t temperature;
+	enum bm1422_out_bit selected_bits;
 
 #if defined(CONFIG_BM1422_TRIGGER)
 	const struct device *dev;
