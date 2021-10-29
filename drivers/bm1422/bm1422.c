@@ -57,7 +57,7 @@ static int bm1422_get_reg(const struct device *dev, uint8_t *read_buf,
 
   return bm1422_reg_access(dev,
       BM1422_READ_REG,
-      register_address,
+      BM1422_REG_READ(register_address),
       read_buf, count);
 }
 
@@ -75,7 +75,7 @@ static int bm1422_set_reg(const struct device *dev,
 
   return bm1422_reg_access(dev,
       BM1422_WRITE_REG,
-      register_address,
+      BM1422_REG_WRITE(register_address),
       &register_value,
       count);
 }
@@ -370,55 +370,98 @@ static int bm1422_chip_init(const struct device *dev) {
   struct bm1422_data *data = dev->data;
   int ret;
 
-  /* Device settings from kconfig */
-  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-      BM1422_CNTL1_ODR_MSK,
-      BM1422_CNTL1_ODR_MODE(bm1422_get_kconfig_odr()));
-  if (ret) {
-    return ret;
-  }
+//  /* Device settings from kconfig */
+//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
+//      BM1422_CNTL1_ODR_MSK,
+//      BM1422_CNTL1_ODR_MODE(bm1422_get_kconfig_odr()));
+//  if (ret) {
+//    return ret;
+//  }
 
-  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-      BM1422_CNTL1_OUT_BIT_MSK,
-      BM1422_CNTL1_OUT_BIT_MODE(bm1422_get_kconfig_bits()));
-  if (ret) {
-    return ret;
-  }
+//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
+//      BM1422_CNTL1_OUT_BIT_MSK,
+//      BM1422_CNTL1_OUT_BIT_MODE(bm1422_get_kconfig_bits()));
+//  if (ret) {
+//    return ret;
+//  }
 
-  ret = bm1422_reg_write_mask(dev, BM1422_AVE_A,
-      BM1422_AVE_A_MSK,
-      BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()));
-  if (ret) {
-    return ret;
-  }
+//  ret = bm1422_reg_write_mask(dev, BM1422_AVE_A,
+//      BM1422_AVE_A_MSK,
+//      BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()));
+//  if (ret) {
+//    return ret;
+//  }
 
-#if defined(CONFIG_BM1422_TRIGGER)
-  data->int_config = bm1422_get_kconfig_cntl2();
+//#if defined(CONFIG_BM1422_TRIGGER)
+//  data->int_config = bm1422_get_kconfig_cntl2();
 
-  ret = bm1422_set_reg(dev, data->int_config, BM1422_CNTL2, 1);
-  if (ret) {
-    return ret;
-  }
+//  ret = bm1422_set_reg(dev, data->int_config, BM1422_CNTL2, 1);
+//  if (ret) {
+//    return ret;
+//  }
 
   if (bm1422_init_interrupt(dev) < 0) {
     LOG_ERR("Failed to initialize interrupt!");
     return -EIO;
   }
-#endif
+//#endif
 
-  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-      BM1422_CNTL1_PC1_MSK,
-      BM1422_CNTL1_PC1_MODE(1));
+//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
+//      BM1422_CNTL1_PC1_MSK,
+//      BM1422_CNTL1_PC1_MODE(1));
+//  if (ret) {
+//    return ret;
+//  }
+
+//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
+//      BM1422_CNTL1_RST_LV_MSK,
+//      BM1422_CNTL1_RST_LV_MODE(0));
+//  if (ret) {
+//    return ret;
+//  }
+
+//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL3,
+//      BM1422_CNTL3_FORCE_MSK,
+//      BM1422_CNTL3_FORCE_MODE(1));
+//  if (ret) {
+//    return ret;
+//  }
+
+  ret = bm1422_set_reg(dev, 0xC0, BM1422_CNTL1, 1);
   if (ret) {
     return ret;
   }
 
-  ret = bm1422_reg_write_mask(dev, BM1422_CNTL3,
-      BM1422_CNTL3_FORCE_MSK,
-      BM1422_CNTL3_FORCE_MODE(1));
+  ret = bm1422_set_reg(dev, 0x00, BM1422_CNTL4_LO, 1);
   if (ret) {
     return ret;
   }
+
+  ret = bm1422_set_reg(dev, 0x00, BM1422_CNTL4_HI, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, 0x0C, BM1422_CNTL2, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, 0x40, BM1422_CNTL3, 1);
+  if (ret) {
+    return ret;
+  }
+
+  k_sleep(K_MSEC(5));
+
+  struct sensor_value temp[3];
+
+  ret = bm1422_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, temp);
+  if (ret) {
+    return ret;
+  }
+
+  printk("%d,%d\n",temp[0].val1,temp[0].val2);
 
   return 0;
 }

@@ -85,7 +85,7 @@ int bm1422_trigger_set(const struct device *dev, const struct sensor_trigger *tr
     int_en = 0U;
   }
 
-  return bm1422_reg_write_mask(dev, BM1422_CNTL2, int_mask, int_en);
+  return 0;
 }
 
 int bm1422_init_interrupt(const struct device *dev) {
