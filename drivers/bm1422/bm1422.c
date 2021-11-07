@@ -52,8 +52,7 @@ static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
  * @param count - Number of bytes to read.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_get_reg(const struct device *dev, uint8_t *read_buf,
-    uint8_t register_address, uint8_t count) {
+static int bm1422_get_reg(const struct device *dev, uint8_t register_address, uint8_t *read_buf, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_READ_REG,
@@ -69,9 +68,7 @@ static int bm1422_get_reg(const struct device *dev, uint8_t *read_buf,
  * @param count - Number of bytes to write.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_set_reg(const struct device *dev,
-    uint16_t register_value,
-    uint8_t register_address, uint8_t count) {
+static int bm1422_set_reg(const struct device *dev, uint8_t register_address, uint16_t register_value, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_WRITE_REG,
@@ -93,7 +90,7 @@ int bm1422_reg_write_mask(const struct device *dev, uint8_t register_address,
   int ret;
   uint8_t tmp;
 
-  ret = bm1422_get_reg(dev, &tmp, register_address, 1);
+  ret = bm1422_get_reg(dev, register_address, &tmp, 1);
   if (ret) {
     return ret;
   }
@@ -101,7 +98,7 @@ int bm1422_reg_write_mask(const struct device *dev, uint8_t register_address,
   tmp &= ~mask;
   tmp |= data;
 
-  return bm1422_set_reg(dev, tmp, register_address, 1);
+  return bm1422_set_reg(dev, register_address, tmp, 1);
 }
 
 #if defined(CONFIG_BM1422_TRIGGER)
@@ -113,12 +110,17 @@ int bm1422_reg_write_mask(const struct device *dev, uint8_t register_address,
  * @return 0 in case of success, negative error code otherwise.
  */
 int bm1422_get_status(const struct device *dev, uint8_t *status) {
-  return bm1422_get_reg(dev, status, BM1422_STA1, 1);
+  return bm1422_get_reg(dev, BM1422_STA1, status, 1);
 }
 
 int bm1422_clear_interrupts(const struct device *dev) {
+  uint8_t temp[6];
   /* Reading magnetometer data clears the DRDY flag? */
-  //return bm1422_get_reg(dev, &buf, BM1422_INT_REL, 1);
+  return bm1422_get_reg(dev, BM1422_FINE_DATAX_LO, (uint8_t *)temp, sizeof(temp));
+  /* Set the FORCE flag again? */
+  //return bm1422_reg_write_mask(dev, BM1422_CNTL3,
+  //                             BM1422_CNTL3_FORCE_MSK,
+  //                             BM1422_CNTL3_FORCE_MODE(1));
 }
 #endif
 
@@ -230,16 +232,23 @@ static int bm1422_attr_get(const struct device *dev,
   // TODO: Figure out how to make custom attributes
 }
 
-static void bm1422_mag_convert(struct sensor_value *val, int16_t mag, enum bm1422_out_bit bits) {
+void bm1422_mag_convert(struct sensor_value *val, int16_t mag, enum bm1422_out_bit bits) {
   uint16_t divisor = BM1422_MAG_12BIT_LSB_PER_MILLI_T;
   if (bits == BM1422_14BIT) {
     divisor = BM1422_MAG_14BIT_LSB_PER_MILLI_T;
   }
-  int64_t pico_t = mag * 1000 * 1000 * 1000 / divisor;
+  int64_t temp = (int64_t)mag * 1000LL * 1000LL * 1000LL;
+  int64_t pico_t = temp / divisor;
 
-  val->val1 = pico_t / 1000000; // Saved in sensor_value as micro T
-  val->val2 = pico_t % 1000000; // Saved in sensor_value as pico T
+  val->val1 = (int32_t)(pico_t / 1000000LL); // Saved in sensor_value as micro T
+  val->val2 = (int32_t)(pico_t % 1000000LL); // Saved in sensor_value as pico T
 }
+//static void bm1422_mag_convert(struct sensor_value *val, int16_t mag, enum bm1422_out_bit bits) {
+
+
+//  val->val1 = 0;
+//  val->val2 = mag;
+//}
 
 static void bm1422_temp_convert(struct sensor_value *val, int16_t temp, enum bm1422_out_bit bits) {
   uint16_t divisor = BM1422_12BIT_LSB_PER_MILLI_DEGREE_C;
@@ -252,8 +261,7 @@ static void bm1422_temp_convert(struct sensor_value *val, int16_t temp, enum bm1
   val->val2 = micro_c % 1000000; // Saved in sensor_value as pico C
 }
 
-static int bm1422_sample_fetch(const struct device *dev,
-    enum sensor_channel chan) {
+static int bm1422_sample_fetch(const struct device *dev, enum sensor_channel chan) {
   struct bm1422_data *data = dev->data;
   uint8_t buf[6];
   int ret;
@@ -261,24 +269,24 @@ static int bm1422_sample_fetch(const struct device *dev,
   __ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
   // Magnetometer data
-  ret = bm1422_get_reg(dev, (uint8_t *)buf, BM1422_FINE_DATAX_LO, sizeof(buf));
+  ret = bm1422_get_reg(dev, BM1422_DATAX_LO, (uint8_t *)buf, sizeof(buf));
   if (ret) {
     return ret;
   }
 
   /* 16-bit, big endien, 2's compliment */
-  data->mag_x = (int16_t)(buf[1] << 8 | (buf[0] & 0xFF));
-  data->mag_y = (int16_t)(buf[3] << 8 | (buf[2] & 0xFF));
-  data->mag_z = (int16_t)(buf[5] << 8 | (buf[4] & 0xFF));
+  data->mag_x = ((int16_t)buf[1] << 8) | (buf[0]);
+  data->mag_y = ((int16_t)buf[3] << 8) | (buf[2]);
+  data->mag_z = ((int16_t)buf[5] << 8) | (buf[4]);
 
   // Temperature data
-  ret = bm1422_get_reg(dev, (uint8_t *)buf, BM1422_TEMP_LO, 2);
+  ret = bm1422_get_reg(dev, BM1422_TEMP_LO, (uint8_t *)buf, 2);
   if (ret) {
     return ret;
   }
 
   /* 16-bit, big endien, 2's compliment */
-  data->temperature = (int16_t)(buf[1] << 8 | (buf[0] & 0xFF));
+  data->temperature = ((int16_t)buf[1] << 8) | (buf[0]);
 
   return 0;
 }
@@ -366,102 +374,184 @@ uint8_t bm1422_get_kconfig_cntl2(void) {
 
 #endif /* CONFIG_BM1422_TRIGGER */
 
+static int bm1422_offset_adj(const struct device *dev) {
+  struct bm1422_data *data = dev->data;
+  int ret;
+  uint8_t wk_dat = 1;
+  uint16_t diff_x = 9999;
+  uint16_t diff_y = 9999;
+  uint16_t diff_z = 9999;
+  uint8_t offx_dat = 1;
+  uint8_t offy_dat = 1;
+  uint8_t offz_dat = 1;
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL1, 0xC2, 1);
+  if (ret) {
+    return ret;
+  }
+
+  k_sleep(K_MSEC(1));
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL2, 0x0C, 1);
+  if (ret) {
+    return ret;
+  }
+
+  while (wk_dat < 96) {
+    ret = bm1422_set_reg(dev, BM1422_OFFX_LO, wk_dat, 1);
+    if (ret) {
+      return ret;
+    }
+
+    ret = bm1422_set_reg(dev, BM1422_OFFY_LO, wk_dat, 1);
+    if (ret) {
+      return ret;
+    }
+
+    ret = bm1422_set_reg(dev, BM1422_OFFZ_LO, wk_dat, 1);
+    if (ret) {
+      return ret;
+    }
+
+    ret = bm1422_set_reg(dev, BM1422_CNTL3, 0x40, 1);
+    if (ret) {
+      return ret;
+    }
+
+    k_sleep(K_MSEC(101));
+
+    if (sensor_sample_fetch(dev)) {
+      LOG_INF("sensor_sample_fetch failed\n");
+      return -EIO;
+    }
+
+    if (diff_x > abs(data->mag_x)) {
+      offx_dat = wk_dat;
+      diff_x = abs(data->mag_x);
+    }
+
+    if (diff_y > abs(data->mag_y)) {
+      offy_dat = wk_dat;
+      diff_y = abs(data->mag_y);
+    }
+
+    if (diff_z > abs(data->mag_z)) {
+      offz_dat = wk_dat;
+      diff_z = abs(data->mag_z);
+    }
+
+    wk_dat += 1;
+  }
+
+  LOG_INF("%d,%d,%d\n", offx_dat, offy_dat, offz_dat);
+
+  ret = bm1422_set_reg(dev, BM1422_OFFX_LO, 46, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_OFFY_LO, 46, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_OFFZ_LO, 45, 1);
+  if (ret) {
+    return ret;
+  }
+
+  return 0;
+}
+
 static int bm1422_chip_init(const struct device *dev) {
   struct bm1422_data *data = dev->data;
   int ret;
 
-//  /* Device settings from kconfig */
-//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-//      BM1422_CNTL1_ODR_MSK,
-//      BM1422_CNTL1_ODR_MODE(bm1422_get_kconfig_odr()));
-//  if (ret) {
-//    return ret;
-//  }
+  /* Device settings from kconfig */
+  data->selected_bits = bm1422_get_kconfig_bits();
+  ret = bm1422_set_reg(dev, BM1422_CNTL1, 
+                        0 | BM1422_CNTL1_PC1_MODE(1) | 
+                        BM1422_CNTL1_OUT_BIT_MODE(data->selected_bits) | 
+                        BM1422_CNTL1_ODR_MODE(bm1422_get_kconfig_odr()), 1);
+  if (ret) {
+    return ret;
+  }
 
-//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-//      BM1422_CNTL1_OUT_BIT_MSK,
-//      BM1422_CNTL1_OUT_BIT_MODE(bm1422_get_kconfig_bits()));
-//  if (ret) {
-//    return ret;
-//  }
+  ret = bm1422_set_reg(dev, BM1422_AVE_A, BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()), 1);
+  if (ret) {
+    return ret;
+  }
 
-//  ret = bm1422_reg_write_mask(dev, BM1422_AVE_A,
-//      BM1422_AVE_A_MSK,
-//      BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()));
-//  if (ret) {
-//    return ret;
-//  }
+#if defined(CONFIG_BM1422_TRIGGER)
+  data->int_config = bm1422_get_kconfig_cntl2();
 
-//#if defined(CONFIG_BM1422_TRIGGER)
-//  data->int_config = bm1422_get_kconfig_cntl2();
-
-//  ret = bm1422_set_reg(dev, data->int_config, BM1422_CNTL2, 1);
-//  if (ret) {
-//    return ret;
-//  }
+  ret = bm1422_set_reg(dev, BM1422_CNTL2, data->int_config, 1);
+  if (ret) {
+    return ret;
+  }
+  k_sleep(K_MSEC(1));
 
   if (bm1422_init_interrupt(dev) < 0) {
     LOG_ERR("Failed to initialize interrupt!");
     return -EIO;
   }
-//#endif
+#endif
 
-//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-//      BM1422_CNTL1_PC1_MSK,
-//      BM1422_CNTL1_PC1_MODE(1));
-//  if (ret) {
-//    return ret;
-//  }
+  k_sleep(K_MSEC(1));
 
-//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL1,
-//      BM1422_CNTL1_RST_LV_MSK,
-//      BM1422_CNTL1_RST_LV_MODE(0));
-//  if (ret) {
-//    return ret;
-//  }
-
-//  ret = bm1422_reg_write_mask(dev, BM1422_CNTL3,
-//      BM1422_CNTL3_FORCE_MSK,
-//      BM1422_CNTL3_FORCE_MODE(1));
-//  if (ret) {
-//    return ret;
-//  }
-
-  ret = bm1422_set_reg(dev, 0xC0, BM1422_CNTL1, 1);
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
   if (ret) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, 0x00, BM1422_CNTL4_LO, 1);
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
   if (ret) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, 0x00, BM1422_CNTL4_HI, 1);
+  ret = bm1422_set_reg(dev, BM1422_OFFX_LO, 47, 1);
+  if (ret) {
+    return ret;
+  }
+  ret = bm1422_set_reg(dev, BM1422_OFFX_HI, 0, 1);
   if (ret) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, 0x0C, BM1422_CNTL2, 1);
+  ret = bm1422_set_reg(dev, BM1422_OFFY_LO, 47, 1);
+  if (ret) {
+    return ret;
+  }
+  ret = bm1422_set_reg(dev, BM1422_OFFY_HI, 0, 1);
   if (ret) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, 0x40, BM1422_CNTL3, 1);
+  ret = bm1422_set_reg(dev, BM1422_OFFZ_LO, 46, 1);
+  if (ret) {
+    return ret;
+  }
+  ret = bm1422_set_reg(dev, BM1422_OFFZ_HI, 0, 1);
   if (ret) {
     return ret;
   }
 
-  k_sleep(K_MSEC(5));
+  k_sleep(K_MSEC(1));
 
-  struct sensor_value temp[3];
-
-  ret = bm1422_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, temp);
+  ret = bm1422_set_reg(dev, BM1422_CNTL3, 0x40, 1);
   if (ret) {
     return ret;
   }
-
-  printk("%d,%d\n",temp[0].val1,temp[0].val2);
 
   return 0;
 }
@@ -479,18 +569,22 @@ static int bm1422_init(const struct device *dev) {
     return -EINVAL;
   }
 
-  //err = bm1422_software_reset(dev);
-  //if (err) {
-  //  LOG_ERR("bm1422_software_reset failed, error %d\n", err);
-  //  return -ENODEV;
-  //}
-  //k_sleep(K_MSEC(5));
+  err = bm1422_software_reset(dev);
+  if (err) {
+    LOG_ERR("bm1422_software_reset failed, error %d\n", err);
+    return -ENODEV;
+  }
+  k_sleep(K_MSEC(5));
 
-  bm1422_get_reg(dev, value, BM1422_WHO_AM_I, sizeof(value));
+  bm1422_get_reg(dev, BM1422_WHO_AM_I, value, 1);
   if (value[0] != BM1422_WHO_AM_I_VAL) {
     LOG_ERR("Failed Part-ID: %d\n", value[0]);
     return -ENODEV;
   }
+
+  //if (bm1422_offset_adj(dev) < 0) {
+  //  return -ENODEV;
+  //}
 
   if (bm1422_chip_init(dev) < 0) {
     return -ENODEV;

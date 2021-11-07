@@ -23,7 +23,7 @@ static void bm1422_thread_cb(const struct device *dev) {
 
   if (drv_data->drdy_handler != NULL) {
     drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
-    bm1422_clear_interrupts(dev);
+    //bm1422_clear_interrupts(dev);
   }
 
   k_mutex_unlock(&drv_data->trigger_mutex);

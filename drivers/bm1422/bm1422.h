@@ -116,10 +116,10 @@
 
 
 /* BM1422 scale factors from specifications */
-#define BM1422_MAG_12BIT_LSB_PER_MILLI_T	5953
-#define BM1422_MAG_14BIT_LSB_PER_MILLI_T	23810
-#define BM1422_12BIT_LSB_PER_MILLI_DEGREE_C	32760		// Maybe? Datasheet sucks
-#define BM1422_14BIT_LSB_PER_MILLI_DEGREE_C	131064		// Maybe? Datasheet sucks
+#define BM1422_MAG_12BIT_LSB_PER_MILLI_T	5953LL
+#define BM1422_MAG_14BIT_LSB_PER_MILLI_T	23810LL
+#define BM1422_12BIT_LSB_PER_MILLI_DEGREE_C	32760LL		// Maybe? Datasheet sucks
+#define BM1422_14BIT_LSB_PER_MILLI_DEGREE_C	131064LL		// Maybe? Datasheet sucks
 
 
 enum bm1422_op_mode {
