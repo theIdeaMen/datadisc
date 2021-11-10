@@ -23,13 +23,9 @@ static void bm1422_thread_cb(const struct device *dev) {
 
   if (drv_data->drdy_handler != NULL) {
     drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
-    bm1422_clear_interrupts(dev);
+    //bm1422_clear_interrupts(dev);
   }
 
-  if (drv_data->any_handler != NULL) {
-    drv_data->any_handler(dev, &drv_data->any_trigger);
-    bm1422_clear_interrupts(dev);
-  }
   k_mutex_unlock(&drv_data->trigger_mutex);
 }
 
@@ -75,18 +71,7 @@ int bm1422_trigger_set(const struct device *dev, const struct sensor_trigger *tr
     drv_data->drdy_handler = handler;
     drv_data->drdy_trigger = *trig;
     k_mutex_unlock(&drv_data->trigger_mutex);
-    int_mask = BM1422_INC4_DRDYI1_MSK;
-    bm1422_reg_write_mask(dev, BM1422_CNTL1, BM1422_CNTL1_DRDY_EN_MSK, BM1422_CNTL1_DRDY_EN_MODE(1));
-    bm1422_clear_interrupts(dev);
-    break;
-  case BM1422_SENSOR_TRIG_ANY:
-    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
-    drv_data->any_handler = handler;
-    drv_data->any_trigger = *trig;
-    k_mutex_unlock(&drv_data->trigger_mutex);
-    int_mask = drv_data->int1_source;
-    bm1422_reg_write_mask(dev, BM1422_CNTL1, BM1422_CNTL1_DRDY_EN_MSK, BM1422_CNTL1_DRDY_EN_MODE(1));
-    bm1422_reg_write_mask(dev, BM1422_CNTL1, BM1422_CNTL1_TILT_EN_MSK, BM1422_CNTL1_TAP_EN_MODE(1));
+    int_mask = BM1422_CNTL2_DREN_MSK;
     bm1422_clear_interrupts(dev);
     break;
   default:
@@ -100,7 +85,7 @@ int bm1422_trigger_set(const struct device *dev, const struct sensor_trigger *tr
     int_en = 0U;
   }
 
-  return bm1422_reg_write_mask(dev, BM1422_INC4, int_mask, int_en);
+  return 0;
 }
 
 int bm1422_init_interrupt(const struct device *dev) {

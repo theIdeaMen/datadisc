@@ -41,6 +41,7 @@
 
 #include "battery.h"
 #include "kx134.h"
+#include "bm1422.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -362,7 +363,9 @@ K_MUTEX_DEFINE(init_mut);
 K_CONDVAR_DEFINE(init_cond);
 
 
-/* Battery check */
+/********************************************
+ * Battery check
+ ********************************************/
 void batt_check_thread(void) {
 
   int off_time; // turn off divider to save power (ms)
@@ -403,7 +406,9 @@ void batt_check_thread(void) {
 //    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-/* LED Control */
+/********************************************
+ * LED Control
+ ********************************************/
 #define PWM_LED0_NODE DT_ALIAS(pwm_led0)
 
 #if DT_NODE_HAS_STATUS(PWM_LED0_NODE, okay)
@@ -492,7 +497,9 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
 
 
 
-/* MSGQ buffers */
+/********************************************
+ * MSGQ buffers
+ ********************************************/
 struct accel_msgq_item_t {
   uint8_t id;
   uint64_t timestamp;
@@ -508,7 +515,9 @@ K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 500, 4);
 K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 4000, 4);
 
 
-/* Accelerometers */
+/********************************************
+ * Accelerometers
+ ********************************************/
 #define ACCEL_ALPHA_DEVICE DT_LABEL(DT_INST(0, kionix_kx134_1211))
 #define ACCEL_BETA_DEVICE DT_LABEL(DT_INST(1, kionix_kx134_1211))
 
@@ -680,7 +689,85 @@ K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-/* Thread for crunching data during runtime */
+/********************************************
+ * Magnetometer
+ ********************************************/
+#define MAGN_DEVICE DT_LABEL(DT_INST(0, rohm_bm1422agmv))
+
+/* Unique IDs to carry into CSV */
+#define MAGN_ID  0x3C;
+
+K_SEM_DEFINE(magn_sem, 0, 1);
+
+static void magn_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  if (sensor_sample_fetch(dev)) {
+    printf("sensor_sample_fetch failed\n");
+    return;
+  }
+
+  k_sem_give(&magn_sem);
+}
+
+void magn_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev = device_get_binding(MAGN_DEVICE);
+  struct accel_msgq_item_t msgq_item;
+
+  if (!dev) {
+    printf("Devicetree has no rohm,bm1422agmv node\n");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    printf("Device %s is not ready\n", dev->name);
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = SENSOR_TRIG_DATA_READY,
+      .chan = SENSOR_CHAN_MAGN_XYZ,
+  };
+
+  if (sensor_trigger_set(dev, &trig, magn_trigger_handler)) {
+    printf("Could not set trigger\n");
+    return;
+  }
+
+  while (1) {
+
+    k_sem_take(&magn_sem, K_FOREVER);
+
+    if (datadisc_state == LOG) {
+
+      msgq_item.id = MAGN_ID;
+      msgq_item.timestamp = uptime_get_us();
+
+      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, msgq_item.data);
+
+      /* send data to consumers */
+      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+        /* message queue is full: purge old data & try again */
+        k_msgq_purge(&accel_msgq);
+      }
+    }
+  }
+}
+
+K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+/********************************************
+ * Thread for crunching data during runtime
+ ********************************************/
 void runtime_compute_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
@@ -709,6 +796,7 @@ void runtime_compute_thread(void) {
 
     case 0x1A:
     case 0x2B:
+    case 0x3C:
       x_value = sensor_value_to_32(&msgq_item.data[0]);
       y_value = sensor_value_to_32(&msgq_item.data[1]);
       z_value = sensor_value_to_32(&msgq_item.data[2]);
@@ -738,7 +826,10 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
     NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
-/* Q-SPI FLASH */
+
+/********************************************
+ * Q-SPI FLASH
+ ********************************************/
 uint8_t fname[MAX_PATH_LEN];    // Buffer created outside thread to avoid stack overflow
 
 void spi_flash_thread(void) {

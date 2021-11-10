@@ -33,7 +33,7 @@
 #define BM1422_DATAZ_LO		0x14u  /* Z Channel Output Low Byte */
 #define BM1422_DATAZ_HI		0x15u  /* Z Channel Output High Byte */
 
-#define BM1422_STA1			0x18u  /* Status Register */
+#define BM1422_STA1		0x18u  /* Status Register */
 
 #define BM1422_CNTL1		0x1Bu  /* Main Feature Controls */
 #define BM1422_CNTL2		0x1Cu  /* Data Ready Controls */
@@ -73,16 +73,16 @@
 
 /* Some register values */
 #define BM1422_MAN_ID_VAL        "?"	/* TBD */
-#define BM1422_PART_ID_VAL		0x33u   /* TBD */
-#define BM1422_WHO_AM_I_VAL		0x41u  	/* Supplier Recognition ID */
+#define BM1422_PART_ID_VAL	0x33u   /* TBD */
+#define BM1422_WHO_AM_I_VAL	0x41u  	/* Supplier Recognition ID */
 
 
-#define BM1422_READ				0x01u
+#define BM1422_READ			0x01u
 #define BM1422_REG_READ(x)		(((x & 0xFF) << 1) | BM1422_READ)
 #define BM1422_REG_WRITE(x)		((x & 0xFF) << 1)
-#define BM1422_TO_I2C_REG(x)	((x) >> 1)
+#define BM1422_TO_I2C_REG(x)            ((x) >> 1)
 
-#define PWRTWO(x)               (1 << (x))
+#define PWRTWO(x)                       (1 << (x))
 
 
 /* BM1422_STA1 */
@@ -92,7 +92,7 @@
 #define BM1422_CNTL1_PC1_MSK			BIT(7)
 #define BM1422_CNTL1_PC1_MODE(x)		(((x) & 0x1) << 7)
 #define BM1422_CNTL1_OUT_BIT_MSK		BIT(6)
-#define BM1422_CNTL1_OUT_BIT_MODE(x)	(((x) & 0x1) << 6)
+#define BM1422_CNTL1_OUT_BIT_MODE(x)            (((x) & 0x1) << 6)
 #define BM1422_CNTL1_RST_LV_MSK			BIT(5)
 #define BM1422_CNTL1_RST_LV_MODE(x)		(((x) & 0x1) << 5)
 #define BM1422_CNTL1_ODR_MSK			GENMASK(4, 3)
@@ -111,15 +111,15 @@
 #define BM1422_CNTL3_FORCE_MODE(x)		(((x) & 0x1) << 6)
 
 /* BM1422_AVE_A */
-#define BM1422_AVE_A_MSK				GENMASK(4, 2)
+#define BM1422_AVE_A_MSK			GENMASK(4, 2)
 #define BM1422_AVE_A_MODE(x)			(((x) & 0x7) << 2)
 
 
 /* BM1422 scale factors from specifications */
-#define BM1422_MAG_12BIT_LSB_PER_MILLI_T	5953
-#define BM1422_MAG_14BIT_LSB_PER_MILLI_T	23810
-#define BM1422_12BIT_LSB_PER_MILLI_DEGREE_C	32760		// Maybe? Datasheet sucks
-#define BM1422_14BIT_LSB_PER_MILLI_DEGREE_C	131064		// Maybe? Datasheet sucks
+#define BM1422_MAG_12BIT_LSB_PER_MILLI_T	5953LL
+#define BM1422_MAG_14BIT_LSB_PER_MILLI_T	23810LL
+#define BM1422_12BIT_LSB_PER_MILLI_DEGREE_C	32760LL		// Maybe? Datasheet sucks
+#define BM1422_14BIT_LSB_PER_MILLI_DEGREE_C	131064LL		// Maybe? Datasheet sucks
 
 
 enum bm1422_op_mode {

@@ -88,9 +88,9 @@
 	compatible = "nordic,nrf-twim";
 	status = "okay";
 	
-	clock-frequency = <1000000>;
-	sda-pin = <34>;
-	scl-pin = <35>;
+	clock-frequency = <400000>;
+	sda-pin = <35>;
+	scl-pin = <34>;
 	
 	bm1422agmv@e {
 		compatible = "rohm,bm1422agmv";
