@@ -773,17 +773,13 @@ static int kx134_init(const struct device *dev)
 	}
         k_sleep(K_MSEC(5));
 
-        //while(1){
+        value[0] = 0;
 
         kx134_get_reg(dev, value, KX134_PART_ID, sizeof(value));
 	if (value[0] != KX134_WHO_AM_I_VAL) {
 		LOG_ERR("Failed Part-ID: %d\n", value[0]);
 		return -ENODEV;
 	}
-
-        //k_sleep(K_MSEC(500));
-
-        //}; // debuggin
 
 	if (kx134_chip_init(dev) < 0) {
 		return -ENODEV;
@@ -793,69 +789,13 @@ static int kx134_init(const struct device *dev)
 }
 
 
-
-//static const struct kx134_config kx134_config = {
-//#ifdef CONFIG_KX134_I2C
-//	.i2c_port = DT_INST_BUS_LABEL(0),
-//	.i2c_addr = DT_INST_REG_ADDR(0),
-//#endif
-//#ifdef CONFIG_KX134_SPI
-//	.spi_port = DT_INST_BUS_LABEL(1),
-//	.spi_slave = DT_INST_REG_ADDR(1),
-//	.spi_max_frequency = DT_INST_PROP(1, spi_max_frequency),
-//#if DT_INST_SPI_DEV_HAS_CS_GPIOS(1)
-//	.gpio_cs_port = DT_INST_SPI_DEV_CS_GPIOS_LABEL(1),
-//	.cs_gpio = DT_INST_SPI_DEV_CS_GPIOS_PIN(1),
-//	.cs_flags = DT_INST_SPI_DEV_CS_GPIOS_FLAGS(1),
-//#endif
-//#endif
-//#ifdef CONFIG_KX134_TRIGGER
-//	.gpio_port = DT_INST_GPIO_LABEL(1, irq_gpios),
-//	.int_gpio = DT_INST_GPIO_PIN(1, irq_gpios),
-//	.int_flags = DT_INST_GPIO_FLAGS(1, irq_gpios),
-//        .int1_config = KX134_INC1_IEN1_MODE(1) | KX134_INC1_IEA1_MODE(1), // Enable and active high
-//	.int2_config = KX134_INC5_IEN2_MODE(0), // Disabled for now
-//#endif
-
-//#ifdef CONFIG_KX134_OSA_50HZ
-//	.osa = KX134_OSA_50HZ,
-//#elif CONFIG_KX134_OSA_800HZ
-//	.osa = KX134_OSA_800HZ,
-//#elif CONFIG_KX134_OSA_1600HZ
-//	.osa = KX134_OSA_1600HZ,
-//#elif CONFIG_KX134_OSA_3200HZ
-//	.osa = KX134_OSA_3200HZ,
-//#elif CONFIG_KX134_OSA_6400HZ
-//	.osa = KX134_OSA_6400HZ,
-//#endif
-
-//        /* Device Settings */
-//	.buff_config = KX134_BM_STREAM,
-
-//	.op         = KX134_LOW_POWER,
-//	.gsel       = KX134_GSEL_64G,
-//	.otp        = KX134_OTP_1HZ563,
-//	.otdt       = KX134_OTDT_12HZ5,
-//	.owuf       = KX134_OWUF_0HZ781,
-//	.obts       = KX134_OBTS_0HZ781,
-//	.offi       = KX134_OFFI_12HZ5,
-//	.avc        = KX134_NO_AVG,
-//	.rms_avc    = KX134_RMS_AVG_2_SAMPLES,
-//	.oadp       = KX134_OADP_0HZ781,
-//};
-
-//DEVICE_DT_INST_DEFINE(0, kx134_init, device_pm_control_nop,
-//		    &kx134_data, &kx134_config, POST_KERNEL,
-//		    CONFIG_SENSOR_INIT_PRIORITY, &kx134_api_funcs);
-
-
 /*
- * This instantiation macro is named "CREATE_MY_DEVICE".
+ * This instantiation macro is named "CREATE_KX134_DEVICE".
  * Its "inst" argument is an arbitrary instance number.
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define CREATE_MY_DEVICE(inst)                                    \
+#define CREATE_KX134_DEVICE(inst)                                    \
   static struct kx134_data kx134_data_##inst = {                  \
       /* initialize RAM values as needed, e.g.: */                \
   };                                                              \
@@ -880,4 +820,4 @@ static int kx134_init(const struct device *dev)
       &kx134_api_funcs);
 
 /* Call the device creation macro for each instance: */
-DT_INST_FOREACH_STATUS_OKAY(CREATE_MY_DEVICE)
+DT_INST_FOREACH_STATUS_OKAY(CREATE_KX134_DEVICE)

@@ -35,7 +35,7 @@ static void kx134_thread_cb(const struct device *dev) {
 
 static void kx134_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
   struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_cb);
-
+  
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
 #elif defined(CONFIG_KX134_TRIGGER_GLOBAL_THREAD)

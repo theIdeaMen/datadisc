@@ -32,14 +32,14 @@
 
 //#include <settings/settings.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/conn.h>
-#include <bluetooth/gatt.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/services/bas.h>
-#include <bluetooth/uuid.h>
+//#include <bluetooth/bluetooth.h>
+//#include <bluetooth/conn.h>
+//#include <bluetooth/gatt.h>
+//#include <bluetooth/hci.h>
+//#include <bluetooth/services/bas.h>
+//#include <bluetooth/uuid.h>
 
-#include "battery.h"
+//#include "battery.h"
 #include "kx134.h"
 #include "bm1422.h"
 
@@ -79,8 +79,8 @@ static struct fs_mount_t fs_mnt;
 
 /** A discharge curve specific to the power source. */
 // TODO measure DataDisc battery curve
-static const struct battery_level_point levels[] = {
-#if DT_NODE_HAS_PROP(DT_INST(0, voltage_divider), io_channels)
+//static const struct battery_level_point levels[] = {
+//#if DT_NODE_HAS_PROP(DT_INST(0, voltage_divider), io_channels)
     /* "Curve" here eyeballed from captured data for the [Adafruit
 	 * 3.7v 2000 mAh](https://www.adafruit.com/product/2011) LIPO
 	 * under full load that started with a charge of 3.96 V and
@@ -93,15 +93,16 @@ static const struct battery_level_point levels[] = {
 	 * and 3.1 V.
 	 */
 
-    {10000, 3950},
-    {625, 3550},
-    {0, 3100},
-#else
-    /* Linear from maximum voltage to minimum voltage. */
-    {10000, 3600},
-    {0, 1700},
-#endif
-};
+//    {10000, 3950},
+//    {625, 3550},
+//    {0, 3100},
+//#else
+//    /* Linear from maximum voltage to minimum voltage. */
+//    {10000, 3600},
+//    {0, 1700},
+//#endif
+//};
+
 
 unsigned int soc_percent = 0;
 
@@ -366,41 +367,41 @@ K_CONDVAR_DEFINE(init_cond);
 /********************************************
  * Battery check
  ********************************************/
-void batt_check_thread(void) {
+//void batt_check_thread(void) {
 
-  int off_time; // turn off divider to save power (ms)
+//  int off_time; // turn off divider to save power (ms)
 
-  while (1) {
-    switch (datadisc_state) {
-    case LOG:
-      off_time = 700;
-      break;
+//  while (1) {
+//    switch (datadisc_state) {
+//    case LOG:
+//      off_time = 700;
+//      break;
 
-    default: // TODO: decide on times for other states
-      off_time = 2700;
-      break;
-    }
+//    default: // TODO: decide on times for other states
+//      off_time = 2700;
+//      break;
+//    }
 
-    battery_measure_enable(true);
+//    battery_measure_enable(true);
 
-    k_msleep(300);
-    int batt_mV = battery_sample();
+//    k_msleep(300);
+//    int batt_mV = battery_sample();
 
-    battery_measure_enable(false);
+//    battery_measure_enable(false);
 
-    if (batt_mV < 0) {
-      printk("Failed to read battery voltage: %d\n", batt_mV);
-    }
+//    if (batt_mV < 0) {
+//      printk("Failed to read battery voltage: %d\n", batt_mV);
+//    }
 
-    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
+//    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
 
-    printk("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
+//    printk("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
 
-    soc_percent = batt_pptt / 100;
+//    soc_percent = batt_pptt / 100;
 
-    k_msleep(off_time);
-  }
-}
+//    k_msleep(off_time);
+//  }
+//}
 
 //K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
 //    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
@@ -531,7 +532,7 @@ K_SEM_DEFINE(sem_b, 0, 1);
 static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
   if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+    LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
@@ -553,11 +554,11 @@ void accel_alpha_thread(void) {
   struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
-    printf("Devicetree has no kionix,kx134-1211 node\n");
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
@@ -567,11 +568,12 @@ void accel_alpha_thread(void) {
   };
 
   if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
-    printf("Could not set trigger\n");
+    LOG_ERR("Could not set trigger");
     return;
   }
 
-  msgq_item.id = ACCEL_ALPHA_ID;
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
 
   while (1) {
     k_sem_take(&sem_a, K_FOREVER);
@@ -580,10 +582,11 @@ void accel_alpha_thread(void) {
 
     if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
 
+      msgq_item.id = ACCEL_ALPHA_ID;
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
-
+      
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
         /* message queue is full: purge old data & try again */
@@ -600,7 +603,7 @@ K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
   if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+    LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
@@ -623,11 +626,11 @@ void accel_beta_thread(void) {
   struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
-    printf("Devicetree has no kionix,kx134-1211 node\n");
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
@@ -637,14 +640,16 @@ void accel_beta_thread(void) {
   };
 
   if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
-    printf("Could not set trigger\n");
+    LOG_ERR("Could not set trigger");
     return;
   }
+
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
 
   while (1) {
 
     k_sem_take(&sem_b, K_FOREVER);
-    //k_sem_take(&sem_b, K_MSEC(50));
 
     sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
 
@@ -702,7 +707,7 @@ K_SEM_DEFINE(magn_sem, 0, 1);
 static void magn_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
   if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+    LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
@@ -723,11 +728,11 @@ void magn_thread(void) {
   struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
-    printf("Devicetree has no rohm,bm1422agmv node\n");
+    LOG_ERR("Devicetree has no rohm,bm1422agmv node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
@@ -737,7 +742,7 @@ void magn_thread(void) {
   };
 
   if (sensor_trigger_set(dev, &trig, magn_trigger_handler)) {
-    printf("Could not set trigger\n");
+    LOG_ERR("Could not set trigger");
     return;
   }
 
@@ -811,7 +816,7 @@ void runtime_compute_thread(void) {
           msgq_item.id, msgq_item.timestamp);
       break;
     }
-    printk("[%llu] %d -\n", msgq_item.timestamp, k_msgq_num_free_get(&datalog_msgq));
+    LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
 
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
@@ -858,10 +863,10 @@ void spi_flash_thread(void) {
   log_start_time = k_uptime_get();
 
   if (!mp->mnt_point) {
-    printk("FAIL: mount id %u at %s\n", id, mp->mnt_point);
+    LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
     return;
   }
-  printk("%s mount\n", mp->mnt_point);
+  LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
   snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
 
@@ -869,7 +874,7 @@ void spi_flash_thread(void) {
 
   rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
   if (rc < 0) {
-    printk("FAIL: open %s: %d\n", fname, rc);
+    LOG_ERR("FAIL: open %s: %d\n", log_strdup(fname), rc);
     goto out;
   }
 
@@ -877,13 +882,13 @@ void spi_flash_thread(void) {
 
   rc = fs_write(&file, buffer, strlen(buffer));
   if (rc < 0) {
-    printk("FAIL: write %s: %d\n", buffer, rc);
+    LOG_ERR("FAIL: write %s: %d\n", log_strdup(buffer), rc);
     goto out;
   }
 
   rc = fs_sync(&file);
   if (rc < 0) {
-    printk("FAIL: sync %s: %d\n", fname, rc);
+    LOG_ERR("FAIL: sync %s: %d\n", log_strdup(fname), rc);
     goto out;
   }
 
@@ -898,7 +903,7 @@ void spi_flash_thread(void) {
     rc = fs_write(&file, data_item.data, data_item.length);
     
     if (rc < 0) {
-      printk("FAIL: write %s: %d\n", fname, rc);
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
       goto out;
     }
     data_size += data_item.length;
@@ -925,7 +930,7 @@ out:
   datadisc_state = IDLE;
 
   rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
+  LOG_INF("%s close: %d\n", log_strdup(fname), rc);
 
   k_msgq_purge(&accel_msgq);
   k_msgq_purge(&datalog_msgq);

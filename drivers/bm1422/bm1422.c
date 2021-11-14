@@ -243,22 +243,16 @@ void bm1422_mag_convert(struct sensor_value *val, int16_t mag, enum bm1422_out_b
   val->val1 = (int32_t)(pico_t / 1000000LL); // Saved in sensor_value as micro T
   val->val2 = (int32_t)(pico_t % 1000000LL); // Saved in sensor_value as pico T
 }
-//static void bm1422_mag_convert(struct sensor_value *val, int16_t mag, enum bm1422_out_bit bits) {
-
-
-//  val->val1 = 0;
-//  val->val2 = mag;
-//}
 
 static void bm1422_temp_convert(struct sensor_value *val, int16_t temp, enum bm1422_out_bit bits) {
-  uint16_t divisor = BM1422_12BIT_LSB_PER_MILLI_DEGREE_C;
+  uint16_t divisor = BM1422_12BIT_LSB_PER_DEGREE_C;
   if (bits == BM1422_14BIT) {
-    divisor = BM1422_14BIT_LSB_PER_MILLI_DEGREE_C;
+    divisor = BM1422_14BIT_LSB_PER_DEGREE_C;
   }
-  int64_t micro_c = temp * 1000 * 1000 * 1000 / divisor;
+  int64_t micro_c = (int64_t)temp * 1000LL * 1000LL / divisor;
 
-  val->val1 = micro_c / 1000000; // Saved in sensor_value as micro C
-  val->val2 = micro_c % 1000000; // Saved in sensor_value as pico C
+  val->val1 = (int32_t)(micro_c / 1000000); // Saved in sensor_value as C
+  val->val2 = (int32_t)(micro_c % 1000000); // Saved in sensor_value as milli C
 }
 
 static int bm1422_sample_fetch(const struct device *dev, enum sensor_channel chan) {
