@@ -200,7 +200,7 @@ static int setup_flash(struct fs_mount_t *mnt) {
   unsigned int id;
   const struct flash_area *pfa;
 
-  mnt->storage_dev = (void *)FLASH_AREA_ID(external_flash);
+  mnt->storage_dev = (void *)FLASH_AREA_ID(storage);
   id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
@@ -593,8 +593,8 @@ void accel_alpha_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
