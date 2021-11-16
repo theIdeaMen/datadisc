@@ -821,7 +821,6 @@ void runtime_compute_thread(void) {
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
-      //k_msgq_purge(&datalog_msgq);
       k_msgq_get(&datalog_msgq, &throw_away_item, K_NO_WAIT);
     }
   }
@@ -898,8 +897,6 @@ void spi_flash_thread(void) {
 
     k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
 
-    //printk("%s", data_item.data);
-
     rc = fs_write(&file, data_item.data, data_item.length);
     
     if (rc < 0) {
@@ -922,7 +919,7 @@ void spi_flash_thread(void) {
     }
 
     if ((uint64_t)k_uptime_get() - log_start_time > 20000) {
-      goto out;
+      datadisc_state = IDLE;
     }
   }
 
