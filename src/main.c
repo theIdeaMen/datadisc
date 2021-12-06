@@ -431,6 +431,9 @@ K_CONDVAR_DEFINE(init_cond);
 #define MIN_PERIOD_USEC (USEC_PER_SEC / 64U)
 #define MAX_PERIOD_USEC USEC_PER_SEC
 
+#define M_E 2.71828182845904523536
+#define SCALING_CONST (MAX_BRIGHTNESS / (M_E - (1 / M_E)))
+
 void led_control_thread(void) {
 
   const struct device *pwm;
@@ -449,47 +452,29 @@ void led_control_thread(void) {
 
     switch (datadisc_state) {
     case IDLE:
-      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
-        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
-        if (err < 0) {
-          LOG_ERR("err=%d brightness=%d", err, level);
-          return;
-        }
-        k_msleep(FADE_DELAY);
-      }
-      k_msleep(1000);
-      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
-        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * (MAX_BRIGHTNESS - level)) / 100U, PWM_FLAGS);
-        if (err < 0) {
-          LOG_ERR("err=%d brightness=%d", err, (MAX_BRIGHTNESS - level));
-          return;
-        }
-        k_msleep(FADE_DELAY);
-      }
-      k_msleep(1000);
+      // Slow breathe
+      level = (exp(sin(2.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+
       break;
 
     case LOG:
-      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, MAX_BRIGHTNESS, PWM_FLAGS);
-      if (err < 0) {
-        LOG_ERR("err=%d", err);
-        return;
-      }
-      k_msleep(300);
-
-      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, 0, PWM_FLAGS);
-      if (err < 0) {
-        LOG_ERR("err=%d", err);
-        return;
-      }
-      k_msleep(300);
-
+      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      
       break;
 
     default: // TODO: decide on times for other states
+      
+      level = MAX_BRIGHTNESS;
 
       break;
     }
+
+    err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
+    if (err < 0) {
+      LOG_ERR("err=%d", err);
+      return;
+    }
+    k_msleep(5);
   }
 }
 
@@ -596,8 +581,8 @@ void accel_alpha_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -690,8 +675,8 @@ void accel_beta_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -766,8 +751,8 @@ void magn_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -826,8 +811,8 @@ void runtime_compute_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 
@@ -941,8 +926,8 @@ out:
   LOG_INF("The device is put in USB mass storage mode.\n");
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
 /***************************************************************
