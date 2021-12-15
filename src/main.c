@@ -438,7 +438,8 @@ void led_control_thread(void) {
 
   const struct device *pwm;
   int err;
-  uint16_t level;
+  uint16_t level = 0;
+  uint16_t time_now;
 
   pwm = DEVICE_DT_GET(PWM_CTLR);
   if (pwm) {
@@ -451,14 +452,28 @@ void led_control_thread(void) {
   while (1) {
 
     switch (datadisc_state) {
+    case INIT:
+      // Fast breathe
+      level = (exp(sin(10.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+
+      break;
+
     case IDLE:
       // Slow breathe
-      level = (exp(sin(2.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
 
       break;
 
     case LOG:
-      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      // Two step fast pulse
+      time_now = (uint16_t)k_uptime_get();
+
+      if (time_now % 1200 < 200 ^ time_now % 1300 < 200) {
+        level = MAX_BRIGHTNESS;
+      }
+      else {
+        level = 0;
+      }
       
       break;
 
@@ -474,12 +489,12 @@ void led_control_thread(void) {
       LOG_ERR("err=%d", err);
       return;
     }
-    k_msleep(5);
+    k_msleep(10);
   }
 }
 
 K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+    NULL, NULL, NULL, PRIORITY, 0, 0);
 
 
 
@@ -947,7 +962,8 @@ void main(void) {
 
   setup_disk();
 
-  datadisc_state = IDLE;
+  k_msleep(2000);
+  datadisc_state = LOG;
 
   k_condvar_signal(&init_cond);
   k_mutex_unlock(&init_mut);
