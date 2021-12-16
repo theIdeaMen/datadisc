@@ -455,12 +455,22 @@ void led_control_thread(void) {
     case INIT:
       // Fast breathe
       level = (exp(sin(10.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      
+      // Slow breathe
+      //level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
 
       break;
 
     case IDLE:
-      // Slow breathe
-      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      // One dim, slow pulse
+      time_now = (uint16_t)k_uptime_get();
+
+      if (time_now % 5000 < 300) {
+        level = MAX_BRIGHTNESS / 3;
+      }
+      else {
+        level = 0;
+      }
 
       break;
 
@@ -963,7 +973,7 @@ void main(void) {
   setup_disk();
 
   k_msleep(2000);
-  datadisc_state = LOG;
+  datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
   k_mutex_unlock(&init_mut);
