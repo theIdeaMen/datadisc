@@ -465,10 +465,10 @@ void led_control_thread(void) {
       break;
 
     case LOG:
-      // Two step fast pulse
+      // Three fast pulses
       time_now = (uint16_t)k_uptime_get();
 
-      if (time_now % 1200 < 200 ^ time_now % 1300 < 200) {
+      if ((time_now % 200 < 20) ^ (time_now % 300 < 20)) {
         level = MAX_BRIGHTNESS;
       }
       else {
