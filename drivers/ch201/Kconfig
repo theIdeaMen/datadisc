@@ -1,0 +1,119 @@
+# Long-Range Ultrasonic Time of Flight Sensor
+
+# Copyright (c) 2021 Griffin Adams
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig CH201
+	bool "CH201 Ultrasonic ToF Sensor"
+	depends on I2C
+	help
+		Enable driver for CH201 Ultrasonic ToF Sensor.
+
+if CH201
+
+module = CH201
+module-str = CH201
+source "subsys/logging/Kconfig.template.log_config"
+
+choice
+	prompt "Output Data Bit"
+	default CH201_12_BIT
+
+	config CH201_12_BIT
+		bool "12-bit Output"
+		  
+	config CH201_14_BIT
+		bool "14-bit Output"
+		  
+endchoice
+
+choice
+	prompt "Averaging Filter Control"
+	default CH201_AVC_4SAMPLES
+	
+	config CH201_AVC_NONE
+		bool "No Averaging"
+	
+	config CH201_AVC_2SAMPLES
+		bool "2 Samples Averaged"
+		
+	config CH201_AVC_4SAMPLES
+		bool "4 Samples Averaged"
+	
+	config CH201_AVC_8SAMPLES
+		bool "8 Samples Averaged"
+	
+	config CH201_AVC_16SAMPLES
+		bool "16 Samples Averaged"
+		
+endchoice
+
+
+choice
+	prompt "Magnetometer sampling frequency (ODR)"
+	default CH201_ODR_10HZ
+		
+	config CH201_ODR_10HZ
+		bool "10 Hz"
+
+	config CH201_ODR_20HZ
+		bool "20 Hz"
+
+	config CH201_ODR_100HZ
+		bool "100 Hz"
+
+	config CH201_ODR_1KHZ
+		bool "1000 Hz"
+		
+endchoice
+
+
+menuconfig CH201_DREN
+	bool "DRDY Interrupt Pin"
+	
+config CH201_DRP
+	bool "DRDY Interrupt Pin Level Control"
+	depends on CH201_DREN
+	help
+		n: active LOW, y: active HIGH
+	
+
+choice
+	prompt "Trigger mode"
+	default CH201_TRIGGER_OWN_THREAD
+	help
+	  Specify the type of triggering used by the driver.
+
+config CH201_TRIGGER_NONE
+	bool "No trigger"
+
+config CH201_TRIGGER_GLOBAL_THREAD
+	bool "Use global thread"
+	depends on GPIO
+	select CH201_TRIGGER
+
+config CH201_TRIGGER_OWN_THREAD
+	bool "Use own thread"
+	depends on GPIO
+	select CH201_TRIGGER
+
+endchoice
+
+config CH201_TRIGGER
+	bool
+
+config CH201_THREAD_PRIORITY
+	int "Thread priority"
+	depends on CH201_TRIGGER_OWN_THREAD && CH201_TRIGGER
+	default 10
+	help
+		Priority of thread used by the driver to handle interrupts.
+
+config CH201_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on CH201_TRIGGER_OWN_THREAD && CH201_TRIGGER
+	default 1024
+	help
+		Stack size of thread used by the driver to handle interrupts.
+
+endif # CH201
