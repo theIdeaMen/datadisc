@@ -606,8 +606,8 @@ void accel_alpha_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -700,8 +700,8 @@ void accel_beta_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -776,8 +776,8 @@ void magn_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -805,7 +805,7 @@ void runtime_compute_thread(void) {
 
     switch (msgq_item.id) {
     case 0x00:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,double tap\n",
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%lu,double tap\n",
           msgq_item.id, msgq_item.timestamp);
       break;
 
@@ -816,13 +816,13 @@ void runtime_compute_thread(void) {
       y_value = sensor_value_to_32(&msgq_item.data[1]);
       z_value = sensor_value_to_32(&msgq_item.data[2]);
 
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d\n",
-          msgq_item.id, msgq_item.timestamp, x_value, y_value, z_value);
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%u,%d,%d,%d\n",
+          msgq_item.id, (uint32_t)msgq_item.timestamp, x_value, y_value, z_value);
       break;
 
     case 0xFF:
     default:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,no data\n",
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%lu,no data\n",
           msgq_item.id, msgq_item.timestamp);
       break;
     }
@@ -836,8 +836,8 @@ void runtime_compute_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
-//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 
@@ -877,7 +877,7 @@ void spi_flash_thread(void) {
   }
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
-  snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
+  snprintf(fname, sizeof(fname), "%s/datalog_%u_%lu.csv", mp->mnt_point, boot_count, (uint32_t)log_start_time);
 
   fs_file_t_init(&file);
 
@@ -951,8 +951,8 @@ out:
   LOG_INF("The device is put in USB mass storage mode.\n");
 }
 
-//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
 /***************************************************************
@@ -972,7 +972,7 @@ void main(void) {
 
   setup_disk();
 
-  k_msleep(2000);
+  k_msleep(200);
   datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
