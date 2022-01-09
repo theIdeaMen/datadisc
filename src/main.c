@@ -677,6 +677,7 @@ void accel_beta_thread(void) {
       }
     }
 
+    // Double tap int source
     if (KX134_INS2_DTS(int_source.val1)) {
 
       msgq_item.id = 0x00;
@@ -805,7 +806,7 @@ void runtime_compute_thread(void) {
 
     switch (msgq_item.id) {
     case 0x00:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%lu,double tap\n",
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%dt,%lu,-99999,-99999,-99999\n",
           msgq_item.id, msgq_item.timestamp);
       break;
 
@@ -822,7 +823,7 @@ void runtime_compute_thread(void) {
 
     case 0xFF:
     default:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%lu,no data\n",
+      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%no_data,%lu\n",
           msgq_item.id, msgq_item.timestamp);
       break;
     }
@@ -858,8 +859,6 @@ void spi_flash_thread(void) {
 
   k_thread_system_pool_assign(k_current_get());
 
-  //goto out;
-
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
@@ -877,7 +876,7 @@ void spi_flash_thread(void) {
   }
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
-  snprintf(fname, sizeof(fname), "%s/datalog_%u_%lu.csv", mp->mnt_point, boot_count, (uint32_t)log_start_time);
+  snprintf(fname, sizeof(fname), "%s/%u_%lu.csv", mp->mnt_point, boot_count, (uint32_t)log_start_time);
 
   fs_file_t_init(&file);
 
@@ -915,14 +914,14 @@ void spi_flash_thread(void) {
     }
     data_size += data_item.length;
 
-    //if (data_size >= 4096) {
-    //  rc = fs_sync(&file);
-    //  if (rc < 0) {
-    //    printk("FAIL: sync %s: %d\n", fname, rc);
-    //    goto out;
-    //  }
-    //  data_size = 0;
-    //}
+    if (data_size >= 1024) {
+      rc = fs_sync(&file);
+      if (rc < 0) {
+        LOG_ERR("FAIL: sync %s: %d\n", fname, rc);
+        goto out;
+      }
+      data_size = 0;
+    }
 
     if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
       goto out;
@@ -941,14 +940,6 @@ out:
 
   k_msgq_purge(&accel_msgq);
   k_msgq_purge(&datalog_msgq);
-
-  rc = usb_enable(NULL);
-  if (rc != 0) {
-    LOG_ERR("Failed to enable USB");
-    return;
-  }
-
-  LOG_INF("The device is put in USB mass storage mode.\n");
 }
 
 K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
@@ -972,7 +963,16 @@ void main(void) {
 
   setup_disk();
 
-  k_msleep(200);
+  k_msleep(2);
+
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
+
+  LOG_INF("The device is put in USB mass storage mode.\n");
+
   datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
