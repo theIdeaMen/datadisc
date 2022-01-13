@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,6 +29,7 @@
 #include <drivers/gpio.h>
 #include <drivers/pwm.h>
 #include <drivers/sensor.h>
+#include <drivers/uart.h>
 
 //#include <settings/settings.h>
 
@@ -42,6 +43,7 @@
 //#include "battery.h"
 #include "kx134.h"
 #include "bm1422.h"
+#include "datadisc_shell.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -857,7 +859,7 @@ void spi_flash_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  k_thread_system_pool_assign(k_current_get());
+  //k_thread_system_pool_assign(k_current_get());
 
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
@@ -971,7 +973,23 @@ void main(void) {
     return;
   }
 
-  LOG_INF("The device is put in USB mass storage mode.\n");
+  LOG_INF("USB mass storage setup complete.\n");
+
+  #if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
+      const struct device *dev;
+      uint32_t dtr = 0;
+
+      dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
+      if (!device_is_ready(dev) || usb_enable(NULL)) {
+              return;
+      }
+
+      while (!dtr) {
+              uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+              k_sleep(K_MSEC(100));
+      }
+      LOG_INF("Virtual COM port setup complete.\n");
+  #endif
 
   datadisc_state = IDLE;
 
@@ -993,9 +1011,6 @@ void main(void) {
   //if (err < 0) {
   //        return;
   //}
-
-    printk("%d\n",sizeof(struct datalog_msgq_item_t));
-  
 
 
   // Main loop
