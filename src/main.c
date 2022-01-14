@@ -955,7 +955,6 @@ K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
 void main(void) {
 
   int err;
-  struct device *dev;
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
