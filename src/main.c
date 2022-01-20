@@ -7,11 +7,13 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include <zephyr.h>
 #include <kernel.h>
 #include <device.h>
 #include <errno.h>
+#include <version.h>
 
 #include <SEGGER_RTT.h>
 #include <logging/log.h>
@@ -19,6 +21,7 @@
 #include <sys/printk.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
+#include <shell/shell.h>
 
 #include <ff.h>
 #include <fs/fs.h>
@@ -43,7 +46,6 @@
 //#include "battery.h"
 #include "kx134.h"
 #include "bm1422.h"
-#include "datadisc_shell.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -902,7 +904,7 @@ void spi_flash_thread(void) {
     goto out;
   }
 
-  datadisc_state = LOG;
+  //datadisc_state = LOG;
 
   while (1) {
 
@@ -1023,3 +1025,57 @@ void main(void) {
     k_msleep(200);
   }
 }
+
+
+
+/***************************************************************
+*   Shell Commands
+*
+****************************************************************/
+/* DataDisc Shell Commands */
+static int setstate_cmd_handler(const struct shell *shell,
+                            size_t argc, char **argv, void *data)
+{
+        datadisc_state = (int)data;
+
+        shell_print(shell, "State set to: %s\n"
+                           "Value sent to Main: %d",
+                           argv[0],
+                           (int)data);
+
+        return 0;
+}
+
+SHELL_SUBCMD_DICT_SET_CREATE(sub_setstate, setstate_cmd_handler,
+        (idle, 0), (init, 1), (log, 2), (erase, 3), (dump, 4), (sleep, 5)
+);
+
+SHELL_CMD_REGISTER(setstate, &sub_setstate, "Set DataDisc State", NULL);
+
+
+/* Utility Shell Commands */
+static int cmd_demo_ping(const struct shell *shell, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	shell_print(shell, "pong");
+
+	return 0;
+}
+
+
+static int cmd_version(const struct shell *shell, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	shell_print(shell, "Zephyr version %s", KERNEL_VERSION_STRING);
+
+	return 0;
+}
+
+
+SHELL_CMD_REGISTER(ping, NULL, "Demo commands", cmd_demo_ping);
+
+SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
