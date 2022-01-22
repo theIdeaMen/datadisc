@@ -950,6 +950,98 @@ K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
     NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
 
 
+/********************************************
+ * UART Control
+ ********************************************/
+#if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
+
+void uart_ctl_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev;
+  uint32_t dtr = 0;
+
+  dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
+  if (!device_is_ready(dev) || usb_enable(NULL)) {
+    return;
+  }
+
+  LOG_INF("Virtual COM port setup complete.\n");
+
+  while (!dtr) {
+    uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+    k_sleep(K_MSEC(100));
+  }
+}
+
+K_THREAD_DEFINE(uart_ctl_id, STACKSIZE, uart_ctl_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+/***************************************************************
+ *   Shell Commands
+ *
+ ****************************************************************/
+/* DataDisc Shell Commands */
+static int setstate_cmd_handler(const struct shell *shell,
+    size_t argc, char **argv, void *data) {
+
+  static const char * const state_names[] = {
+	[IDLE]  = "IDLE",
+	[INIT]  = "INIT",
+	[LOG]   = "LOG",
+	[ERASE] = "ERASE",
+        [DUMP]  = "DUMP",
+        [SLEEP] = "SLEEP"
+  };
+  Machine_State prev_state = datadisc_state;
+  datadisc_state = (int)data;
+
+  shell_print(shell, "Previous State: %s\n"
+                     "New State     : %s\n",
+              state_names[prev_state],
+              state_names[datadisc_state]);
+
+  return 0;
+}
+
+SHELL_SUBCMD_DICT_SET_CREATE(sub_setstate, setstate_cmd_handler,
+    (idle, 0), (init, 1), (log, 2), (erase, 3), (dump, 4), (sleep, 5));
+
+SHELL_CMD_REGISTER(setstate, &sub_setstate, "Set DataDisc State", NULL);
+
+/* Utility Shell Commands */
+static int cmd_demo_ping(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "pong");
+
+  return 0;
+}
+
+static int cmd_version(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "Zephyr version %s", KERNEL_VERSION_STRING);
+
+  return 0;
+}
+
+SHELL_CMD_REGISTER(ping, NULL, "Demo commands", cmd_demo_ping);
+
+SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
+
+#endif
+
+
 /***************************************************************
 *   Main
 *
@@ -975,22 +1067,6 @@ void main(void) {
   }
 
   LOG_INF("USB mass storage setup complete.\n");
-
-  #if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
-      const struct device *dev;
-      uint32_t dtr = 0;
-
-      dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
-      if (!device_is_ready(dev) || usb_enable(NULL)) {
-              return;
-      }
-
-      while (!dtr) {
-              uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
-              k_sleep(K_MSEC(100));
-      }
-      LOG_INF("Virtual COM port setup complete.\n");
-  #endif
 
   datadisc_state = IDLE;
 
@@ -1020,62 +1096,10 @@ void main(void) {
     /* Battery level */
     //bt_bas_set_battery_level(soc_percent);
 
-    //gpio_pin_toggle(dev, 10);
+    
 
-    k_msleep(200);
+    k_msleep(100);
   }
 }
 
 
-
-/***************************************************************
-*   Shell Commands
-*
-****************************************************************/
-/* DataDisc Shell Commands */
-static int setstate_cmd_handler(const struct shell *shell,
-                            size_t argc, char **argv, void *data)
-{
-        datadisc_state = (int)data;
-
-        shell_print(shell, "State set to: %s\n"
-                           "Value sent to Main: %d",
-                           argv[0],
-                           (int)data);
-
-        return 0;
-}
-
-SHELL_SUBCMD_DICT_SET_CREATE(sub_setstate, setstate_cmd_handler,
-        (idle, 0), (init, 1), (log, 2), (erase, 3), (dump, 4), (sleep, 5)
-);
-
-SHELL_CMD_REGISTER(setstate, &sub_setstate, "Set DataDisc State", NULL);
-
-
-/* Utility Shell Commands */
-static int cmd_demo_ping(const struct shell *shell, size_t argc, char **argv)
-{
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	shell_print(shell, "pong");
-
-	return 0;
-}
-
-
-static int cmd_version(const struct shell *shell, size_t argc, char **argv)
-{
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	shell_print(shell, "Zephyr version %s", KERNEL_VERSION_STRING);
-
-	return 0;
-}
-
-
-SHELL_CMD_REGISTER(ping, NULL, "Demo commands", cmd_demo_ping);
-
-SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
