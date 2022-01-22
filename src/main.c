@@ -62,8 +62,16 @@ typedef enum {
   DUMP,
   SLEEP
 } Machine_State;
-Machine_State datadisc_state = INIT;
+volatile Machine_State datadisc_state = INIT;
 
+static const char *const state_strings[] = {
+    [IDLE]  = "IDLE",
+    [INIT]  = "INIT",
+    [LOG]   = "LOG",
+    [ERASE] = "ERASE",
+    [DUMP]  = "DUMP",
+    [SLEEP] = "SLEEP"
+};
 
 /* file system things */
 #define MAX_PATH_LEN 150
@@ -992,21 +1000,13 @@ K_THREAD_DEFINE(uart_ctl_id, STACKSIZE, uart_ctl_thread,
 static int setstate_cmd_handler(const struct shell *shell,
     size_t argc, char **argv, void *data) {
 
-  static const char * const state_names[] = {
-	[IDLE]  = "IDLE",
-	[INIT]  = "INIT",
-	[LOG]   = "LOG",
-	[ERASE] = "ERASE",
-        [DUMP]  = "DUMP",
-        [SLEEP] = "SLEEP"
-  };
   Machine_State prev_state = datadisc_state;
   datadisc_state = (int)data;
 
   shell_print(shell, "Previous State: %s\n"
                      "New State     : %s\n",
-              state_names[prev_state],
-              state_names[datadisc_state]);
+              state_strings[prev_state],
+              state_strings[datadisc_state]);
 
   return 0;
 }
@@ -1101,5 +1101,4 @@ void main(void) {
     k_msleep(100);
   }
 }
-
 
