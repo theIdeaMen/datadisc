@@ -702,7 +702,7 @@ void accel_beta_thread(void) {
       //  datadisc_state = IDLE;
       //}
 
-      printk("[%s] Double Tap!\n", now_str());
+      LOG_INF("Double Tap!\n");
       
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -1049,6 +1049,7 @@ SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
 void main(void) {
 
   int err;
+  Machine_State prev_state = IDLE;
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -1095,8 +1096,27 @@ void main(void) {
 
     /* Battery level */
     //bt_bas_set_battery_level(soc_percent);
-
     
+    /* State Changed */
+    if (datadisc_state != prev_state) {
+      LOG_INF("State changed to %s.\n", state_strings[datadisc_state]);
+      prev_state = datadisc_state;
+
+      switch(datadisc_state) {
+      case IDLE:
+        break;
+      case LOG:
+        break;
+      case ERASE:
+        break;
+      case DUMP:
+        break;
+      case SLEEP:
+        break;
+      default:
+        break;
+      }
+    }
 
     k_msleep(100);
   }
