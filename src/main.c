@@ -379,7 +379,7 @@ K_CONDVAR_DEFINE(init_cond);
 /********************************************
  * Battery check
  ********************************************/
-//void batt_check_thread(void) {
+//extern void batt_check_thread(void) {
 
 //  int off_time; // turn off divider to save power (ms)
 
@@ -446,7 +446,7 @@ K_CONDVAR_DEFINE(init_cond);
 #define M_E 2.71828182845904523536
 #define SCALING_CONST (MAX_BRIGHTNESS / (M_E - (1 / M_E)))
 
-void led_control_thread(void) {
+extern void led_control_thread(void) {
 
   const struct device *pwm;
   int err;
@@ -561,7 +561,7 @@ static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_
   k_sem_give(&sem_a);
 }
 
-void accel_alpha_thread(void) {
+extern void accel_alpha_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -632,8 +632,7 @@ static void accel_beta_trigger_handler(const struct device *dev, struct sensor_t
   k_sem_give(&sem_b);
 }
 
-
-void accel_beta_thread(void) {
+extern void accel_beta_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -737,7 +736,7 @@ static void magn_trigger_handler(const struct device *dev, struct sensor_trigger
   k_sem_give(&magn_sem);
 }
 
-void magn_thread(void) {
+extern void magn_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -796,7 +795,7 @@ K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
 /********************************************
  * Thread for crunching data during runtime
  ********************************************/
-void runtime_compute_thread(void) {
+extern void runtime_compute_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -859,15 +858,15 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
  ********************************************/
 uint8_t fname[MAX_PATH_LEN];    // Buffer created outside thread to avoid stack overflow
 
-void spi_flash_thread(void) {
+extern void spi_flash_thread(void) {
 
-  k_mutex_lock(&init_mut, K_FOREVER);
+  //k_mutex_lock(&init_mut, K_FOREVER);
 
-  while (datadisc_state == INIT) {
-    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
-  }
+  //while (datadisc_state == INIT) {
+  //  k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  //}
 
-  k_mutex_unlock(&init_mut);
+  //k_mutex_unlock(&init_mut);
 
   //k_thread_system_pool_assign(k_current_get());
 
@@ -952,10 +951,15 @@ out:
 
   k_msgq_purge(&accel_msgq);
   k_msgq_purge(&datalog_msgq);
+
+  return;
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_STACK_DEFINE(spi_flash_stack_area, STACKSIZE);
+struct k_thread spi_flash_thread_data;
+k_tid_t spi_flash_tid = NULL;
 
 
 /********************************************
@@ -963,7 +967,7 @@ K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
  ********************************************/
 #if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
 
-void uart_ctl_thread(void) {
+extern void uart_ctl_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -1102,17 +1106,29 @@ void main(void) {
       LOG_INF("State changed to %s.\n", state_strings[datadisc_state]);
       prev_state = datadisc_state;
 
-      switch(datadisc_state) {
+      switch (datadisc_state) {
       case IDLE:
         break;
+
       case LOG:
+        if (spi_flash_tid == NULL) {
+          spi_flash_tid = k_thread_create(&spi_flash_thread_data, spi_flash_stack_area,
+              K_THREAD_STACK_SIZEOF(spi_flash_stack_area),
+              spi_flash_thread,
+              NULL, NULL, NULL,
+              PRIORITY + 2, 0, K_NO_WAIT);
+        }
         break;
+
       case ERASE:
         break;
+
       case DUMP:
         break;
+
       case SLEEP:
         break;
+
       default:
         break;
       }
@@ -1121,4 +1137,3 @@ void main(void) {
     k_msleep(100);
   }
 }
-
