@@ -18,7 +18,6 @@
 #include <SEGGER_RTT.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
-#include <sys/printk.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
 #include <shell/shell.h>
@@ -151,7 +150,7 @@ unsigned int soc_percent = 0;
 //static void bt_ready(void) {
 //  int err;
 
-//  printk("Bluetooth initialized\n");
+//  LOG_INF("Bluetooth initialized\n");
 
 //  if (IS_ENABLED(CONFIG_SETTINGS)) {
 //    settings_load();
@@ -159,11 +158,11 @@ unsigned int soc_percent = 0;
 
 //  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
 //  if (err) {
-//    printk("Advertising failed to start (err %d)\n", err);
+//    LOG_ERR("Advertising failed to start (err %d)\n", err);
 //    return;
 //  }
 
-//  printk("Advertising successfully started\n");
+//  LOG_INF("Advertising successfully started\n");
 //}
 
 /***************************************************************
@@ -217,14 +216,14 @@ static int setup_flash(struct fs_mount_t *mnt) {
   id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
-  printk("Area %u at 0x%x on %s for %u bytes\n",
+  LOG_INF("Area %u at 0x%x on %s for %u bytes\n",
       id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
       (unsigned int)pfa->fa_size);
 
   if (rc == 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-    printk("Erasing flash area ... ");
+    LOG_INF("Erasing flash area ... ");
     rc = flash_area_erase(pfa, 0, pfa->fa_size);
-    printk("%d\n", rc);
+    LOG_INF("%d\n", rc);
   }
 
   if (rc < 0) {
@@ -294,22 +293,22 @@ static void setup_disk(void) {
   /* Allow log messages to flush to avoid interleaved output */
   k_sleep(K_MSEC(50));
 
-  printk("Mount %s: %d\n", fs_mnt.mnt_point, rc);
+  LOG_INF("Mount %s: %d\n", fs_mnt.mnt_point, rc);
 
   rc = fs_statvfs(mp->mnt_point, &sbuf);
   if (rc < 0) {
-    printk("FAIL: statvfs: %d\n", rc);
+    LOG_ERR("FAIL: statvfs: %d\n", rc);
     return;
   }
 
-  printk("%s: bsize = %lu ; frsize = %lu ;"
+  LOG_INF("%s: bsize = %lu ; frsize = %lu ;"
          " blocks = %lu ; bfree = %lu\n",
       mp->mnt_point,
       sbuf.f_bsize, sbuf.f_frsize,
       sbuf.f_blocks, sbuf.f_bfree);
 
   rc = fs_opendir(&dir, mp->mnt_point);
-  printk("%s opendir: %d\n", mp->mnt_point, rc);
+  LOG_INF("%s opendir: %d\n", mp->mnt_point, rc);
 
   if (rc < 0) {
     LOG_ERR("Failed to open directory");
@@ -324,10 +323,10 @@ static void setup_disk(void) {
       break;
     }
     if (ent.name[0] == 0) {
-      printk("End of files\n");
+      LOG_INF("End of files\n");
       break;
     }
-    printk("  %c %u %s\n",
+    LOG_INF("  %c %u %s\n",
         (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
         ent.size,
         ent.name);
@@ -343,7 +342,7 @@ static void setup_disk(void) {
 
   rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
   if (rc < 0) {
-    printk("FAIL: open %s: %d\n", fname, rc);
+    LOG_ERR("FAIL: open %s: %d\n", fname, rc);
     return;
   }
 
@@ -351,18 +350,18 @@ static void setup_disk(void) {
 
   if (rc >= 0) {
     rc = fs_read(&file, &boot_count, sizeof(boot_count));
-    printk("%s read count %u: %d\n", fname, boot_count, rc);
+    LOG_INF("%s read count %u: %d\n", fname, boot_count, rc);
     rc = fs_seek(&file, 0, FS_SEEK_SET);
-    printk("%s seek start: %d\n", fname, rc);
+    LOG_INF("%s seek start: %d\n", fname, rc);
   }
 
   boot_count += 1;
   rc = fs_write(&file, &boot_count, sizeof(boot_count));
-  printk("%s write new boot count %u: %d\n", fname,
+  LOG_INF("%s write new boot count %u: %d\n", fname,
       boot_count, rc);
 
   rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
+  LOG_INF("%s close: %d\n", fname, rc);
 
   return;
 }
@@ -402,12 +401,12 @@ K_CONDVAR_DEFINE(init_cond);
 //    battery_measure_enable(false);
 
 //    if (batt_mV < 0) {
-//      printk("Failed to read battery voltage: %d\n", batt_mV);
+//      LOG_ERR("Failed to read battery voltage: %d\n", batt_mV);
 //    }
 
 //    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
 
-//    printk("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
+//    LOG_INF("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
 
 //    soc_percent = batt_pptt / 100;
 
@@ -467,9 +466,6 @@ extern void led_control_thread(void) {
     case INIT:
       // Fast breathe
       level = (exp(sin(10.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
-      
-      // Slow breathe
-      //level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
 
       break;
 
@@ -496,6 +492,17 @@ extern void led_control_thread(void) {
       else {
         level = 0;
       }
+      
+      break;
+
+    case ERASE:
+      // Slow breathe
+      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      
+      break;
+
+    case SLEEP:
+      level = 0;
       
       break;
 
@@ -841,7 +848,7 @@ extern void runtime_compute_thread(void) {
     LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
 
     /* Send the string to the FLASH write thread */
-    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
+    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0 && datadisc_state == LOG) {
       /* message queue is full: purge old data & try again */
       k_msgq_get(&datalog_msgq, &throw_away_item, K_NO_WAIT);
     }
@@ -1059,7 +1066,7 @@ void main(void) {
 
   SEGGER_RTT_Init();
 
-  printk("Starting DataDisc v2\n");
+  LOG_INF("Starting DataDisc v2\n");
 
   setup_disk();
 
@@ -1081,7 +1088,7 @@ void main(void) {
   // Initialize the Bluetooth Subsystem
   //err = bt_enable(NULL);
   //if (err) {
-  //  printk("Bluetooth init failed (err %d)\n", err);
+  //  LOG_ERR("Bluetooth init failed (err %d)\n", err);
   //  return;
   //}
 
