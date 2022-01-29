@@ -795,29 +795,36 @@ static int kx134_init(const struct device *dev)
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define CREATE_KX134_DEVICE(inst)                                    \
-  static struct kx134_data kx134_data_##inst = {                  \
-      /* initialize RAM values as needed, e.g.: */                \
-  };                                                              \
-  static const struct kx134_config kx134_config_##inst = {        \
-      /* initialize ROM values as needed. */                      \
-      .spi_port = DT_INST_BUS_LABEL(inst),                        \
-      .spi_slave = DT_INST_REG_ADDR(inst),                        \
-      .spi_max_frequency = DT_INST_PROP(inst, spi_max_frequency), \
-      .gpio_cs_port = DT_INST_SPI_DEV_CS_GPIOS_LABEL(inst),       \
-      .cs_gpio = DT_INST_SPI_DEV_CS_GPIOS_PIN(inst),              \
-      .cs_flags = DT_INST_SPI_DEV_CS_GPIOS_FLAGS(inst),           \
-      .gpio_port = DT_INST_GPIO_LABEL(inst, irq_gpios),           \
-      .int_gpio = DT_INST_GPIO_PIN(inst, irq_gpios),              \
-      .int_flags = DT_INST_GPIO_FLAGS(inst, irq_gpios),           \
-  };                                                              \
-  DEVICE_DT_INST_DEFINE(inst,                                     \
-      kx134_init,                                                 \
-      NULL,                                                       \
-      &kx134_data_##inst,                                         \
-      &kx134_config_##inst,                                       \
-      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,                   \
+#define GPIO_DT_SPEC_INST_GET_BY_IDX_COND(id, prop, idx)            \
+	COND_CODE_1(DT_INST_PROP_HAS_IDX(id, prop, idx),            \
+		    (GPIO_DT_SPEC_INST_GET_BY_IDX(id, prop, idx)),  \
+		    ({.port = NULL, .pin = 0, .dt_flags = 0}))
+
+#define CREATE_KX134_DEVICE(inst)                                   \
+  static struct kx134_data kx134_data_##inst = {                    \
+      /* initialize RAM values as needed, e.g.: */                  \
+  };                                                                \
+  static const struct kx134_config kx134_config_##inst = {          \
+      /* initialize ROM values as needed. */                        \
+      .spi_port = DT_INST_BUS_LABEL(inst),                          \
+      .spi_slave = DT_INST_REG_ADDR(inst),                          \
+      .spi_max_frequency = DT_INST_PROP(inst, spi_max_frequency),   \
+      .gpio_cs_port = DT_INST_SPI_DEV_CS_GPIOS_LABEL(inst),         \
+      .cs_gpio = DT_INST_SPI_DEV_CS_GPIOS_PIN(inst),                \
+      .cs_flags = DT_INST_SPI_DEV_CS_GPIOS_FLAGS(inst),             \
+      .gpio_drdy =                                                  \
+	    GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 0),  \
+      .gpio_int =                                                   \
+	    GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 1),  \
+  };                                                                \
+  DEVICE_DT_INST_DEFINE(inst,                                       \
+      kx134_init,                                                   \
+      NULL,                                                         \
+      &kx134_data_##inst,                                           \
+      &kx134_config_##inst,                                         \
+      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,                     \
       &kx134_api_funcs);
+
 
 /* Call the device creation macro for each instance: */
 DT_INST_FOREACH_STATUS_OKAY(CREATE_KX134_DEVICE)

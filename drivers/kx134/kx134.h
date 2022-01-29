@@ -606,7 +606,8 @@ struct kx134_data {
 #if defined(CONFIG_KX134_TRIGGER)
         const struct device *dev;
 	const struct device *gpio;
-	struct gpio_callback gpio_cb;
+	struct gpio_callback gpio_int1_cb;
+        struct gpio_callback gpio_int2_cb;
         struct k_mutex trigger_mutex;
 
 	sensor_trigger_handler_t th_handler;
@@ -651,9 +652,8 @@ struct kx134_config {
 #endif /* CONFIG_KX134_SPI */
 
 #if defined(CONFIG_KX134_TRIGGER)
-	const char *gpio_port;
-	gpio_pin_t int_gpio;
-	gpio_dt_flags_t int_flags;
+	const struct gpio_dt_spec gpio_drdy;
+	const struct gpio_dt_spec gpio_int;
 #endif
 
 	/* Device Settings */

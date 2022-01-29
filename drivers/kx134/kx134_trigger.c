@@ -33,8 +33,24 @@ static void kx134_thread_cb(const struct device *dev) {
   k_mutex_unlock(&drv_data->trigger_mutex);
 }
 
-static void kx134_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-  struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_cb);
+static void kx134_gpio_int1_callback(const struct device *dev, 
+                                     struct gpio_callback *cb, uint32_t pins) {
+  struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int1_cb);
+
+  ARG_UNUSED(pins);
+  
+#if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
+  k_sem_give(&drv_data->gpio_sem);
+#elif defined(CONFIG_KX134_TRIGGER_GLOBAL_THREAD)
+  k_work_submit(&drv_data->work);
+#endif
+}
+
+static void kx134_gpio_int2_callback(const struct device *dev, 
+                                     struct gpio_callback *cb, uint32_t pins) {
+  struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int2_cb);
+
+  ARG_UNUSED(pins);
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -106,26 +122,53 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
 int kx134_init_interrupt(const struct device *dev) {
   struct kx134_data *drv_data = dev->data;
   const struct kx134_config *cfg = dev->config;
+  int status;
 
   k_mutex_init(&drv_data->trigger_mutex);
 
-  drv_data->gpio = device_get_binding(cfg->gpio_port);
-  if (drv_data->gpio == NULL) {
-    LOG_ERR("Failed to get pointer to %s device!", cfg->gpio_port);
-    return -EINVAL;
+  /* data ready int1 gpio configuration */
+  status = gpio_pin_configure_dt(&cfg->gpio_drdy, GPIO_INPUT);
+  if (status < 0) {
+    LOG_ERR("Could not configure %s.%02u",
+        cfg->gpio_drdy.port->name, cfg->gpio_drdy.pin);
+    return status;
   }
 
-  gpio_pin_configure(drv_data->gpio, cfg->int_gpio,
-      GPIO_INPUT | cfg->int_flags);
+  gpio_init_callback(&drv_data->gpio_int1_cb,
+      kx134_gpio_int1_callback,
+      BIT(cfg->gpio_drdy.pin));
 
-  gpio_init_callback(&drv_data->gpio_cb,
-      kx134_gpio_callback,
-      BIT(cfg->int_gpio));
-
-  if (gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb) < 0) {
-    LOG_ERR("Failed to set gpio callback!");
-    return -EIO;
+  status = gpio_add_callback(cfg->gpio_drdy.port, &drv_data->gpio_int1_cb);
+  if (status < 0) {
+    LOG_ERR("Could not add gpio int1 callback");
+    return status;
   }
+
+  LOG_INF("%s: int1 on %s.%02u", dev->name,
+      cfg->gpio_drdy.port->name,
+      cfg->gpio_drdy.pin);
+
+  /* any other int2 gpio configuration */
+  status = gpio_pin_configure_dt(&cfg->gpio_int, GPIO_INPUT);
+  if (status < 0) {
+    LOG_ERR("Could not configure %s.%02u",
+        cfg->gpio_int.port->name, cfg->gpio_int.pin);
+    return status;
+  }
+
+  gpio_init_callback(&drv_data->gpio_int2_cb,
+      kx134_gpio_int2_callback,
+      BIT(cfg->gpio_int.pin));
+
+  status = gpio_add_callback(cfg->gpio_int.port, &drv_data->gpio_int2_cb);
+  if (status < 0) {
+    LOG_ERR("Could not add gpio int2 callback");
+    return status;
+  }
+
+  LOG_INF("%s: int2 on %s.%02u", dev->name,
+      cfg->gpio_int.port->name,
+      cfg->gpio_int.pin);
 
   drv_data->dev = dev;
 
@@ -146,8 +189,10 @@ int kx134_init_interrupt(const struct device *dev) {
   drv_data->work.handler = kx134_work_cb;
 #endif
 
-  gpio_pin_interrupt_configure(drv_data->gpio, cfg->int_gpio,
-				     GPIO_INT_EDGE_TO_ACTIVE);
+  //gpio_pin_interrupt_configure(drv_data->gpio, cfg->int_gpio,
+		//		     GPIO_INT_EDGE_TO_ACTIVE);
+  gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_LEVEL_ACTIVE);
+  gpio_pin_interrupt_configure_dt(&cfg->gpio_int, GPIO_INT_LEVEL_ACTIVE);
 
   return 0;
 }
