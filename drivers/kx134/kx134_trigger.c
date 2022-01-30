@@ -12,8 +12,8 @@
 #include <drivers/sensor.h>
 #include <kernel.h>
 #include <sys/util.h>
-
 #include <logging/log.h>
+
 LOG_MODULE_DECLARE(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
 static void kx134_thread_cb(const struct device *dev) {
@@ -75,17 +75,50 @@ static void kx134_work_cb(struct k_work *work) {
 }
 #endif
 
-int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *trig, sensor_trigger_handler_t handler) {
+int kx134_trigger_drdy_set(const struct device *dev,
+                            enum sensor_channel chan,
+                            sensor_trigger_handler_t handler) {
+  const struct kx134_config *cfg = dev->config;
+	struct kx134_data *drv_data = dev->data;
+	int status;
+
+  if (cfg->gpio_drdy.port == NULL) {
+		LOG_ERR("trigger_set DRDY int not supported");
+		return -ENOTSUP;
+	}
+
+    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
+    drv_data->drdy_handler = handler;
+    drv_data->drdy_trigger = *trig;
+    k_mutex_unlock(&drv_data->trigger_mutex);
+
+    kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_DRDY_EN_MSK, KX134_CNTL1_DRDY_EN_MODE(1));
+    
+    kx134_clear_interrupts(dev);
+
+    kx134_reg_write_mask(dev, KX134_INC4, KX134_INC4_DRDYI1_MSK, KX134_INC4_DRDYI1_MODE(1));
+
+  
+  default:
+    LOG_ERR("Unsupported sensor trigger");
+    return -ENOTSUP;
+  }
+
+  if (handler) {
+    int_en = int_mask;
+  } else {
+    int_en = 0U;
+  }
+
+  return kx134_reg_write_mask(dev, KX134_INC4, int_mask, int_en);
+}
+
+int kx134_trigger_drdy_set(const struct device *dev,
+                            enum sensor_channel chan,
+                            sensor_trigger_handler_t handler) {
   struct kx134_data *drv_data = dev->data;
   uint8_t int_mask, int_en;
 
-  switch (trig->type) {
-  case SENSOR_TRIG_THRESHOLD:
-    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
-    drv_data->th_handler = handler;
-    drv_data->th_trigger = *trig;
-    int_mask = 0;
-    break;
   case SENSOR_TRIG_DATA_READY:
     k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
     drv_data->drdy_handler = handler;
@@ -102,7 +135,7 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
     k_mutex_unlock(&drv_data->trigger_mutex);
     int_mask = drv_data->int1_source;
     kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_DRDY_EN_MSK, KX134_CNTL1_DRDY_EN_MODE(1));
-    kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_TILT_EN_MSK, KX134_CNTL1_TAP_EN_MODE(1));
+    kx134_reg_write_mask(dev, KX134_CNTL1, KX134_CNTL1_TAP_EN_MSK, KX134_CNTL1_TAP_EN_MODE(1));
     kx134_clear_interrupts(dev);
     break;
   default:
@@ -117,6 +150,21 @@ int kx134_trigger_set(const struct device *dev, const struct sensor_trigger *tri
   }
 
   return kx134_reg_write_mask(dev, KX134_INC4, int_mask, int_en);
+}
+
+int kx134_trigger_set(const struct device *dev,
+                      const struct sensor_trigger *trig,
+                      sensor_trigger_handler_t handler) {
+
+  if (trig->type == SENSOR_TRIG_DATA_READY &&
+      trig->chan == SENSOR_CHAN_ACCEL_XYZ) {
+    return kx134_trigger_drdy_set(dev, trig->chan, handler);
+  } else if (trig->type == KX134_SENSOR_TRIG_ANY) {
+    return kx134_trigger_any_set(dev, handler);
+  }
+  LOG_ERR("Unsupported sensor trigger");
+
+  return -ENOTSUP;
 }
 
 int kx134_init_interrupt(const struct device *dev) {
