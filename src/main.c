@@ -326,10 +326,10 @@ static void setup_disk(void) {
       LOG_INF("End of files\n");
       break;
     }
-    LOG_INF("  %c %u %s\n",
-        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
-        ent.size,
-        ent.name);
+    //LOG_INF("  %c %u %s\n",
+    //    (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
+    //    ent.size,
+    //    ent.name);
   }
 
   (void)fs_closedir(&dir);
@@ -555,20 +555,24 @@ K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 4000, 4);
 #define ACCEL_ALPHA_ID  0x1A;
 #define ACCEL_BETA_ID   0x2B;
 
-K_SEM_DEFINE(sem_a, 0, 1);
-K_SEM_DEFINE(sem_b, 0, 1);
+K_SEM_DEFINE(sem_accel_alpha_drdy, 0, 1);
+K_SEM_DEFINE(sem_accel_alpha_tap, 0, 1);
+K_SEM_DEFINE(sem_accel_beta_drdy, 0, 1);
+K_SEM_DEFINE(sem_accel_beta_idle, 0, 1);
 
-static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+static void accel_alpha_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(trigger);
 
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
-  k_sem_give(&sem_a);
+  k_sem_give(&sem_accel_alpha_drdy);
 }
 
-extern void accel_alpha_thread(void) {
+extern void accel_alpha_drdy_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -592,24 +596,22 @@ extern void accel_alpha_thread(void) {
   }
 
   struct sensor_trigger trig = {
-      .type = KX134_SENSOR_TRIG_ANY,
+      .type = SENSOR_TRIG_DATA_READY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
+  if (sensor_trigger_set(dev, &trig, accel_alpha_drdy_trigger_handler)) {
     LOG_ERR("Could not set trigger");
     return;
   }
 
   struct kx134_data *drv_data = dev->data;
-  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
   while (1) {
-    k_sem_take(&sem_a, K_FOREVER);
+    k_sem_take(&sem_accel_alpha_drdy, K_FOREVER);
 
-    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
-
-    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+    if (datadisc_state == LOG) {
 
       msgq_item.id = ACCEL_ALPHA_ID;
       msgq_item.timestamp = uptime_get_us();
@@ -625,21 +627,80 @@ extern void accel_alpha_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
+K_THREAD_DEFINE(accel_alpha_drdy_id, STACKSIZE, accel_alpha_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+static void accel_alpha_tap_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(dev);
+
+  if (trigger->type == SENSOR_TRIG_DOUBLE_TAP) {
+    k_sem_give(&sem_accel_alpha_tap);
+  }
+
+  LOG_ERR("Unrecognized trigger");
+  return;
+}
+
+extern void accel_alpha_tap_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
+
+  if (!dev) {
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = SENSOR_TRIG_DOUBLE_TAP,
+      .chan = KX134_SENSOR_CHAN_INT_SOURCE,
+  };
+
+  if (sensor_trigger_set(dev, &trig, accel_alpha_tap_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
+    return;
+  }
+
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+
+  while (1) {
+    k_sem_take(&sem_accel_alpha_tap, K_FOREVER);
+
+    LOG_INF("Double Tap!\n");
+  }
+}
+
+K_THREAD_DEFINE(accel_alpha_tap_id, 256, accel_alpha_tap_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+
+
+static void accel_beta_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(trigger);
 
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
-  k_sem_give(&sem_b);
+  k_sem_give(&sem_accel_beta_drdy);
 }
 
-extern void accel_beta_thread(void) {
+extern void accel_beta_drdy_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -650,7 +711,6 @@ extern void accel_beta_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
-  struct sensor_value int_source;
   struct accel_msgq_item_t msgq_item;
 
   if (!dev) {
@@ -663,25 +723,23 @@ extern void accel_beta_thread(void) {
   }
 
   struct sensor_trigger trig = {
-      .type = KX134_SENSOR_TRIG_ANY,
+      .type = SENSOR_TRIG_DATA_READY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
+  if (sensor_trigger_set(dev, &trig, accel_beta_drdy_trigger_handler)) {
     LOG_ERR("Could not set trigger");
     return;
   }
 
   struct kx134_data *drv_data = dev->data;
-  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
   while (1) {
 
-    k_sem_take(&sem_b, K_FOREVER);
+    k_sem_take(&sem_accel_beta_drdy, K_FOREVER);
 
-    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
-
-    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+    if (datadisc_state == LOG) {
 
       msgq_item.id = ACCEL_BETA_ID;
       msgq_item.timestamp = uptime_get_us();
@@ -694,33 +752,68 @@ extern void accel_beta_thread(void) {
         k_msgq_purge(&accel_msgq);
       }
     }
-
-    // Double tap int source
-    if (KX134_INS2_DTS(int_source.val1)) {
-
-      msgq_item.id = 0x00;
-      msgq_item.timestamp = uptime_get_us();
-
-      /* Toggle DataDisc State */
-      //if (datadisc_state == IDLE) {
-      //  datadisc_state = LOG;
-      //} else {
-      //  datadisc_state = IDLE;
-      //}
-
-      LOG_INF("Double Tap!\n");
-      
-      /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
-      }
-    }
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+static void accel_beta_idle_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(dev);
+
+  if (trigger->type == KX134_SENSOR_TRIG_IDLE) {
+    k_sem_give(&sem_accel_beta_idle);
+  }
+
+  LOG_ERR("Unrecognized trigger");
+  return;
+}
+
+extern void accel_beta_idle_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
+
+  if (!dev) {
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = KX134_SENSOR_TRIG_IDLE,
+      .chan = KX134_SENSOR_CHAN_INT_SOURCE,
+  };
+
+  if (sensor_trigger_set(dev, &trig, accel_beta_idle_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
+    return;
+  }
+
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+
+  while (1) {
+    k_sem_take(&sem_accel_beta_idle, K_FOREVER);
+
+    LOG_INF("Idle detected!\n");
+  }
+}
+
+K_THREAD_DEFINE(accel_beta_idle_id, 256, accel_beta_idle_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /********************************************

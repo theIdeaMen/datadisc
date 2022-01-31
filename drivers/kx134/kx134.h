@@ -436,8 +436,8 @@ enum kx134_sensor_trigger_type {
 	/* End of parent enum, beginning of extended */
 	KX134_SENSOR_TRIG_PRIV_START = SENSOR_TRIG_PRIV_START,
 	
-	/* Any 1 of 8 triggers available to physical INT pin */
-	KX134_SENSOR_TRIG_ANY,
+	/* Idle detection */
+	KX134_SENSOR_TRIG_IDLE,
 };
 
 /* Extended Sensor attributes */
