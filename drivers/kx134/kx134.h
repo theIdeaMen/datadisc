@@ -626,6 +626,8 @@ struct kx134_data {
         uint8_t func_int;
         uint8_t wkup_int;
 
+        atomic_t trig_flags;
+
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);
 	struct k_sem gpio_sem;

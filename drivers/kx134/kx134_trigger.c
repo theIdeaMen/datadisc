@@ -16,21 +16,36 @@
 
 LOG_MODULE_DECLARE(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
+#define TRIGGED_INT1    1
+#define TRIGGED_INT2    2
+
 static void kx134_thread_cb(const struct device *dev) {
+const struct kx134_config *cfg = dev->config;
   struct kx134_data *drv_data = dev->data;
 
   k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
 
-  if (drv_data->drdy_handler != NULL) {
-    drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
-    kx134_clear_interrupts(dev);
+  if (cfg->gpio_drdy.port &&
+      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT1)) {
+
+    if (drv_data->drdy_handler != NULL) {
+      drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
+      kx134_clear_interrupts(dev);
+    }
+    k_mutex_unlock(&drv_data->trigger_mutex);
+    return;
   }
 
-  if (drv_data->any_handler != NULL) {
-    drv_data->any_handler(dev, &drv_data->any_trigger);
-    kx134_clear_interrupts(dev);
+  if (cfg->gpio_int.port &&
+      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT2)) {
+
+    if (drv_data->any_handler != NULL) {
+      drv_data->any_handler(dev, &drv_data->any_trigger);
+      kx134_clear_interrupts(dev);
+    }
+    k_mutex_unlock(&drv_data->trigger_mutex);
+    return;
   }
-  k_mutex_unlock(&drv_data->trigger_mutex);
 }
 
 static void kx134_gpio_int1_callback(const struct device *dev, 
@@ -38,6 +53,8 @@ static void kx134_gpio_int1_callback(const struct device *dev,
   struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int1_cb);
 
   ARG_UNUSED(pins);
+
+  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT1);
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -51,6 +68,8 @@ static void kx134_gpio_int2_callback(const struct device *dev,
   struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int2_cb);
 
   ARG_UNUSED(pins);
+
+  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT2);
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -97,7 +116,7 @@ int kx134_trigger_drdy_set(const struct device *dev,
 
   kx134_clear_interrupts(dev);
 
-  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_LEVEL_ACTIVE);
+  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_EDGE_TO_ACTIVE);
   if (status < 0) {
     return status;
   }
@@ -146,7 +165,7 @@ int kx134_trigger_any_set(const struct device *dev,
 
   kx134_clear_interrupts(dev);
   
-  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_int, GPIO_INT_LEVEL_ACTIVE);
+  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_int, GPIO_INT_EDGE_TO_ACTIVE);
   if (status < 0) {
     return status;
   }

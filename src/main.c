@@ -326,10 +326,10 @@ static void setup_disk(void) {
       LOG_INF("End of files\n");
       break;
     }
-    //LOG_INF("  %c %u %s\n",
-    //    (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
-    //    ent.size,
-    //    ent.name);
+    LOG_INF("  %c %u %s\n",
+        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
+        ent.size,
+        ent.name);
   }
 
   (void)fs_closedir(&dir);
@@ -637,10 +637,10 @@ static void accel_alpha_tap_trigger_handler(const struct device *dev, struct sen
 
   if (trigger->type == SENSOR_TRIG_DOUBLE_TAP) {
     k_sem_give(&sem_accel_alpha_tap);
+    return;
   }
 
   LOG_ERR("Unrecognized trigger");
-  return;
 }
 
 extern void accel_alpha_tap_thread(void) {
@@ -684,7 +684,7 @@ extern void accel_alpha_tap_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_alpha_tap_id, 256, accel_alpha_tap_thread,
+K_THREAD_DEFINE(accel_alpha_tap_id, STACKSIZE, accel_alpha_tap_thread,
     NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
@@ -755,8 +755,8 @@ extern void accel_beta_drdy_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_idle_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -765,10 +765,10 @@ static void accel_beta_idle_trigger_handler(const struct device *dev, struct sen
 
   if (trigger->type == KX134_SENSOR_TRIG_IDLE) {
     k_sem_give(&sem_accel_beta_idle);
+    return;
   }
 
   LOG_ERR("Unrecognized trigger");
-  return;
 }
 
 extern void accel_beta_idle_thread(void) {
@@ -812,8 +812,8 @@ extern void accel_beta_idle_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(accel_beta_idle_id, 256, accel_beta_idle_thread,
-    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+//K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
+//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /********************************************
@@ -888,8 +888,8 @@ extern void magn_thread(void) {
   }
 }
 
-K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+//K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
+//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
