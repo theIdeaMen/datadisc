@@ -755,8 +755,8 @@ extern void accel_beta_drdy_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 static void accel_beta_idle_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
@@ -812,8 +812,8 @@ extern void accel_beta_idle_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
-//    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /********************************************
