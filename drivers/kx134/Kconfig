@@ -671,30 +671,30 @@ config KX134_BTSC
 choice
 	prompt "Tap/Double-Tap ODR"
 	depends on KX134_TDTI1 || KX134_TDTI2
-	default KX134_TDTE_ODR_400HZ
+	default KX134_OTDT_ODR_400HZ
 	
-	config KX134_TDTE_ODR_12HZ5
+	config KX134_OTDT_ODR_12HZ5
 		bool "12.5 Hz"
 	
-	config KX134_TDTE_ODR_25HZ
+	config KX134_OTDT_ODR_25HZ
 		bool "25 Hz"
 		
-	config KX134_TDTE_ODR_50HZ
+	config KX134_OTDT_ODR_50HZ
 		bool "50 Hz"
 	
-	config KX134_TDTE_ODR_100HZ
+	config KX134_OTDT_ODR_100HZ
 		bool "100 Hz"
 		
-	config KX134_TDTE_ODR_200HZ
+	config KX134_OTDT_ODR_200HZ
 		bool "200 Hz"
 	
-	config KX134_TDTE_ODR_400HZ
+	config KX134_OTDT_ODR_400HZ
 		bool "400 Hz"
 		
-	config KX134_TDTE_ODR_800HZ
+	config KX134_OTDT_ODR_800HZ
 		bool "800 Hz"
 	
-	config KX134_TDTE_ODR_1600HZ
+	config KX134_OTDT_ODR_1600HZ
 		bool "1600 Hz"
 		
 endchoice
@@ -836,18 +836,18 @@ endif
 choice
 	prompt "Tilt Position ODR"
 	depends on KX134_TPI1 || KX134_TPI2
-	default KX134_TILT_ODR_12HZ5
+	default KX134_OTP_ODR_12HZ5
 	
-	config KX134_TILT_ODR_1HZ563
+	config KX134_OTP_ODR_1HZ563
 		bool "1.563 Hz"
 	
-	config KX134_TILT_ODR_6HZ25
+	config KX134_OTP_ODR_6HZ25
 		bool "6.25 Hz"
 		
-	config KX134_TILT_ODR_12HZ5
+	config KX134_OTP_ODR_12HZ5
 		bool "12.5 Hz"
 	
-	config KX134_TILT_ODR_50HZ
+	config KX134_OTP_ODR_50HZ
 		bool "50 Hz"
 		
 endchoice

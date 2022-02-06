@@ -536,6 +536,125 @@ enum kx134_op_mode kx134_get_kconfig_op_mode(void) {
   #endif
 }
 
+
+
+uint8_t kx134_get_kconfig_cntl2(void) {
+
+  return (  KX134_CNTL2_LEM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_LEM)) | 
+            KX134_CNTL2_RIM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_RIM)) | 
+            KX134_CNTL2_DOM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_DOM)) |
+            KX134_CNTL2_UPM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_UPM)) |
+            KX134_CNTL2_FDM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_FDM)) |
+            KX134_CNTL2_FUM_MODE(IS_ENABLED(CONFIG_KX134_TILT_AXIS_FUM)) );
+	
+}
+
+  //enum kx134_offi offi_odr = KX134_OFFI_12HZ5;
+
+  //#ifdef CONFIG_KX134_OFFI_ODR_12HZ5
+  //  offi_odr = KX134_OFFI_12HZ5;
+  //#elif CONFIG_KX134_OFFI_ODR_25HZ
+  //  offi_odr = KX134_OFFI_25HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_50HZ
+  //  offi_odr = KX134_OFFI_50HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_100HZ
+  //  offi_odr = KX134_OFFI_100HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_200HZ
+  //  offi_odr = KX134_OFFI_200HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_400HZ
+  //  offi_odr = KX134_OFFI_400HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_800HZ
+  //  offi_odr = KX134_OFFI_800HZ;
+  //#elif CONFIG_KX134_OFFI_ODR_1600HZ
+  //  offi_odr = KX134_OFFI_1600HZ;
+  //#endif
+
+uint8_t kx134_get_kconfig_cntl3(void) {
+  enum kx134_otp otp_odr = KX134_OTP_1HZ563;
+  enum kx134_otdt otdt_odr = KX134_OTDT_12HZ5;
+  enum kx134_owuf owuf_odr = KX134_OWUF_0HZ781;
+
+  #ifdef CONFIG_KX134_OTP_ODR_1HZ563
+    otp_odr = KX134_OTP_1HZ563;
+  #elif CONFIG_KX134_OTP_ODR_6HZ25
+    otp_odr = KX134_OTP_6HZ25;
+  #elif CONFIG_KX134_OTP_ODR_12HZ5
+    otp_odr = KX134_OTP_12HZ5;
+  #elif CONFIG_KX134_OTP_ODR_50HZ
+    otp_odr = KX134_OTP_50HZ;
+  #endif
+
+  #ifdef CONFIG_KX134_OTDT_ODR_12HZ5
+    otdt_odr = KX134_OTDT_12HZ5;
+  #elif CONFIG_KX134_OTDT_ODR_25HZ
+    otdt_odr = KX134_OTDT_25HZ;
+  #elif CONFIG_KX134_OTDT_ODR_50HZ
+    otdt_odr = KX134_OTDT_50HZ;
+  #elif CONFIG_KX134_OTDT_ODR_100HZ
+    otdt_odr = KX134_OTDT_100HZ;
+  #elif CONFIG_KX134_OTDT_ODR_200HZ
+    otdt_odr = KX134_OTDT_200HZ;
+  #elif CONFIG_KX134_OTDT_ODR_400HZ
+    otdt_odr = KX134_OTDT_400HZ;
+  #elif CONFIG_KX134_OTDT_ODR_800HZ
+    otdt_odr = KX134_OTDT_800HZ;
+  #elif CONFIG_KX134_OTDT_ODR_1600HZ
+    otdt_odr = KX134_OTDT_1600HZ;
+  #endif
+
+  #ifdef CONFIG_KX134_OWUF_ODR_12HZ5
+    owuf_odr = KX134_OWUF_0HZ781;
+  #elif CONFIG_KX134_OWUF_ODR_1HZ563
+    owuf_odr = KX134_OWUF_1HZ563;
+  #elif CONFIG_KX134_OWUF_ODR_3HZ125
+    owuf_odr = KX134_OWUF_3HZ125;
+  #elif CONFIG_KX134_OWUF_ODR_6HZ25
+    owuf_odr = KX134_OWUF_6HZ25;
+  #elif CONFIG_KX134_OWUF_ODR_12HZ5
+    owuf_odr = KX134_OWUF_12HZ5;
+  #elif CONFIG_KX134_OWUF_ODR_25HZ
+    owuf_odr = KX134_OWUF_25HZ;
+  #elif CONFIG_KX134_OWUF_ODR_50HZ
+    owuf_odr = KX134_OWUF_50HZ;
+  #elif CONFIG_KX134_OWUF_ODR_100HZ
+    owuf_odr = KX134_OWUF_100HZ;
+  #endif
+
+return (KX134_CNTL3_TILT_ODR_MODE(otp_odr) |
+        KX134_CNTL3_TAP_ODR_MODE(otdt_odr) |
+        KX134_CNTL3_WAKE_ODR_MODE(owuf_odr));
+	
+}
+
+uint8_t kx134_get_kconfig_cntl4(void) {
+  enum kx134_obts obts_odr = KX134_OBTS_0HZ781;
+
+  #ifdef CONFIG_KX134_OBTS_ODR_12HZ5
+    obts_odr = KX134_OBTS_0HZ781;
+  #elif CONFIG_KX134_OBTS_ODR_1HZ563
+    obts_odr = KX134_OBTS_1HZ563;
+  #elif CONFIG_KX134_OBTS_ODR_3HZ125
+    obts_odr = KX134_OBTS_3HZ125;
+  #elif CONFIG_KX134_OBTS_ODR_6HZ25
+    obts_odr = KX134_OBTS_6HZ25;
+  #elif CONFIG_KX134_OBTS_ODR_12HZ5
+    obts_odr = KX134_OBTS_12HZ5;
+  #elif CONFIG_KX134_OBTS_ODR_25HZ
+    obts_odr = KX134_OBTS_25HZ;
+  #elif CONFIG_KX134_OBTS_ODR_50HZ
+    obts_odr = KX134_OBTS_50HZ;
+  #elif CONFIG_KX134_OBTS_ODR_100HZ
+    obts_odr = KX134_OBTS_100HZ;
+  #endif
+
+  return (  KX134_CNTL4_DBNC_CNTR_MODE(IS_ENABLED(CONFIG_KX134_C_MODE)) | 
+            KX134_CNTL4_WAKE_TH_REL_MODE(IS_ENABLED(CONFIG_KX134_TH_MODE)) | 
+            KX134_CNTL4_WAKE_EN_MODE(0) |
+            KX134_CNTL4_BTSLEEP_EN_MODE(0) |
+            KX134_CNTL4_PULSE_REJ_MODE(IS_ENABLED(CONFIG_KX134_PR_MODE)) |
+            KX134_CNTL4_BTSLEEP_ODR_MODE(obts_odr) );
+}
+
 #if defined(CONFIG_KX134_TRIGGER)
 
 uint8_t kx134_get_kconfig_inc1(void) {
@@ -679,42 +798,25 @@ static int kx134_chip_init(const struct device *dev)
 		return ret;
 	}
 
-#if defined(CONFIG_KX134_DTRE)
-        ret = kx134_set_reg(dev, CONFIG_KX134_TDTC, KX134_TDTC, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_TTH, KX134_TTH, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_TTL, KX134_TTL, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_FTD, KX134_FTD, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_STD, KX134_STD, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_TLT, KX134_TLT, 1);
-	if (ret) {
-		return ret;
-	}
-        ret = kx134_set_reg(dev, CONFIG_KX134_TWS, KX134_TWS, 1);
-	if (ret) {
-		return ret;
-	}
-#endif /* CONFIG_KX134_DTRE */
 
 	if (kx134_init_interrupt(dev) < 0) {
 		LOG_ERR("Failed to initialize interrupt!");
 		return -EIO;
 	}
 #endif
+        
+        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl2(), KX134_CNTL2, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl3(), KX134_CNTL3, 1);
+	if (ret) {
+		return ret;
+	}
+        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl4(), KX134_CNTL4, 1);
+	if (ret) {
+		return ret;
+	}
 
         ret = kx134_reg_write_mask(dev, KX134_CNTL1,
 				      KX134_CNTL1_ACTIVE_MSK,

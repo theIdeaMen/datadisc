@@ -145,22 +145,83 @@ int kx134_trigger_any_set(const struct device *dev,
   k_mutex_unlock(&drv_data->trigger_mutex);
 
   if (trig->type == SENSOR_TRIG_DOUBLE_TAP) {
-    status = kx134_reg_write_mask(dev, KX134_INC6, KX134_INC6_TDTI2_MSK, KX134_INC6_TDTI2_MODE(1));
+    // Turn off WU/BTS while using double tap for this accel
+    status = kx134_reg_write_mask(dev, KX134_INC6, (KX134_INC6_BTSI2_MSK | KX134_INC6_WUFI2_MSK), 
+                                  (KX134_INC6_BTSI2_MODE(0) | KX134_INC6_WUFI2_MODE(0)));
     if (status < 0) {
       return status;
     }
     cntl1_mask |= KX134_CNTL1_TAP_EN_MSK;
     cntl1_mode |= KX134_CNTL1_TAP_EN_MODE(1);
-  }
+    cntl4_mask |= (KX134_CNTL4_WAKE_EN_MSK | KX134_CNTL4_BTSLEEP_EN_MSK);
+    cntl4_mode |= (KX134_CNTL4_WAKE_EN_MODE(0) | KX134_CNTL4_BTSLEEP_EN_MODE(0));
 
-  if (trig->type == KX134_SENSOR_TRIG_IDLE) {
-    status = kx134_reg_write_mask(dev, KX134_INC6, (KX134_INC6_BTSI2_MSK | KX134_INC6_WUFI2_MSK), 
-                                  (KX134_INC6_BTSI2_MODE(1) | KX134_INC6_WUFI2_MODE(1)));
+    status = kx134_set_reg(dev, CONFIG_KX134_TDTC, KX134_TDTC, 1);
     if (status < 0) {
       return status;
     }
+    status = kx134_set_reg(dev, CONFIG_KX134_TTH, KX134_TTH, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_TTL, KX134_TTL, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_FTD, KX134_FTD, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_STD, KX134_STD, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_TLT, KX134_TLT, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_TWS, KX134_TWS, 1);
+    if (status < 0) {
+      return status;
+    }
+  }
+
+  if (trig->type == KX134_SENSOR_TRIG_IDLE) {
+    // Turn off double tap while using WU/BTS for this accel
+    status = kx134_reg_write_mask(dev, KX134_INC6, KX134_INC6_TDTI2_MSK, KX134_INC6_TDTI2_MODE(0));
+    if (status < 0) {
+      return status;
+    }
+    cntl1_mask |= KX134_CNTL1_TAP_EN_MSK;
+    cntl1_mode |= KX134_CNTL1_TAP_EN_MODE(0);
     cntl4_mask |= (KX134_CNTL4_WAKE_EN_MSK | KX134_CNTL4_BTSLEEP_EN_MSK);
-    cntl4_mode |= (KX134_CNTL4_WAKE_EN_MODE(1) | KX134_CNTL4_BTSLEEP_EN_MODE(1));
+    cntl4_mode |= (KX134_CNTL4_WAKE_EN_MODE(IS_ENABLED(CONFIG_KX134_WUFI2)) | KX134_CNTL4_BTSLEEP_EN_MODE(IS_ENABLED(CONFIG_KX134_BTSI2)));
+
+    status = kx134_set_reg(dev, CONFIG_KX134_WUFTH, KX134_WUFTH, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_reg_write_mask(dev, KX134_WUFTH, KX134_WUFTH_HI_REG_MSK, KX134_WUFTH_HI_REG_MODE(CONFIG_KX134_WUFTH));
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_WUFC, KX134_WUFC, 1);
+    if (status < 0) {
+      return status;
+    }
+
+    status = kx134_set_reg(dev, CONFIG_KX134_BTSTH, KX134_BTSTH, 1);
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_reg_write_mask(dev, KX134_BTSTH, KX134_BTSTH_HI_REG_MSK, KX134_BTSTH_HI_REG_MODE(CONFIG_KX134_BTSTH));
+    if (status < 0) {
+      return status;
+    }
+    status = kx134_set_reg(dev, CONFIG_KX134_BTSC, KX134_BTSC, 1);
+    if (status < 0) {
+      return status;
+    }
   }
 
   kx134_clear_interrupts(dev);

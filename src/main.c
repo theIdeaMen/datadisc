@@ -681,6 +681,7 @@ extern void accel_alpha_tap_thread(void) {
     k_sem_take(&sem_accel_alpha_tap, K_FOREVER);
 
     LOG_INF("Double Tap!\n");
+    k_msleep(250);
   }
 }
 
@@ -809,6 +810,7 @@ extern void accel_beta_idle_thread(void) {
     k_sem_take(&sem_accel_beta_idle, K_FOREVER);
 
     LOG_INF("Idle detected!\n");
+    k_msleep(250);
   }
 }
 
