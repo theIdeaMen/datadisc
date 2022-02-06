@@ -116,7 +116,7 @@ static int kx134_reg_access(struct kx134_data *ctx, uint8_t cmd,
  * @param count - Number of bytes to read.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
+int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
 				  uint8_t register_address, uint8_t count)
 {
 	struct kx134_data *kx134_data = dev->data;
@@ -135,7 +135,7 @@ static int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
  * @param count - Number of bytes to read.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int kx134_set_reg(const struct device *dev,
+int kx134_set_reg(const struct device *dev,
 				  uint16_t register_value,
 				  uint8_t register_address, uint8_t count)
 {

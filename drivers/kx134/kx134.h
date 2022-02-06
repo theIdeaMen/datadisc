@@ -677,6 +677,13 @@ struct kx134_config {
 #ifdef CONFIG_KX134_TRIGGER
 int kx134_get_status(const struct device *dev, uint8_t *status);
 
+int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
+				  uint8_t register_address, uint8_t count);
+
+int kx134_set_reg(const struct device *dev,
+				  uint16_t register_value,
+				  uint8_t register_address, uint8_t count);
+
 int kx134_reg_write_mask(const struct device *dev,
 			   uint8_t reg_addr, uint8_t mask, uint8_t data);
 

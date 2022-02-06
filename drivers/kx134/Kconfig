@@ -506,7 +506,7 @@ config KX134_SMP_TH
 		
 choice
 	prompt "AND-OR Configuration on Motion"
-	depends on KX134_BTSI1 || KX134_WUFI1
+	depends on KX134_BTSI1 || KX134_WUFI1 || KX134_BTSI2 || KX134_WUFI2
 	default KX134_AOI_OR
 
 	config KX134_AOI_OR

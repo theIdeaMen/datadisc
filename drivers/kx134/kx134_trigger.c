@@ -156,34 +156,36 @@ int kx134_trigger_any_set(const struct device *dev,
     cntl4_mask |= (KX134_CNTL4_WAKE_EN_MSK | KX134_CNTL4_BTSLEEP_EN_MSK);
     cntl4_mode |= (KX134_CNTL4_WAKE_EN_MODE(0) | KX134_CNTL4_BTSLEEP_EN_MODE(0));
 
-    status = kx134_set_reg(dev, CONFIG_KX134_TDTC, KX134_TDTC, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_TTH, KX134_TTH, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_TTL, KX134_TTL, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_FTD, KX134_FTD, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_STD, KX134_STD, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_TLT, KX134_TLT, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_TWS, KX134_TWS, 1);
-    if (status < 0) {
-      return status;
-    }
+    #if defined(CONFIG_KX134_DTRE)
+      status = kx134_set_reg(dev, CONFIG_KX134_TDTC, KX134_TDTC, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_TTH, KX134_TTH, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_TTL, KX134_TTL, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_FTD, KX134_FTD, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_STD, KX134_STD, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_TLT, KX134_TLT, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_TWS, KX134_TWS, 1);
+      if (status < 0) {
+        return status;
+      }
+    #endif /* CONFIG_KX134_DTRE */
   }
 
   if (trig->type == KX134_SENSOR_TRIG_IDLE) {
@@ -197,31 +199,35 @@ int kx134_trigger_any_set(const struct device *dev,
     cntl4_mask |= (KX134_CNTL4_WAKE_EN_MSK | KX134_CNTL4_BTSLEEP_EN_MSK);
     cntl4_mode |= (KX134_CNTL4_WAKE_EN_MODE(IS_ENABLED(CONFIG_KX134_WUFI2)) | KX134_CNTL4_BTSLEEP_EN_MODE(IS_ENABLED(CONFIG_KX134_BTSI2)));
 
-    status = kx134_set_reg(dev, CONFIG_KX134_WUFTH, KX134_WUFTH, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_reg_write_mask(dev, KX134_WUFTH, KX134_WUFTH_HI_REG_MSK, KX134_WUFTH_HI_REG_MODE(CONFIG_KX134_WUFTH));
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_WUFC, KX134_WUFC, 1);
-    if (status < 0) {
-      return status;
-    }
+    #if defined(CONFIG_KX134_WUFTH)
+      status = kx134_set_reg(dev, CONFIG_KX134_WUFTH, KX134_WUFTH, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_reg_write_mask(dev, KX134_BTSWUFTH, KX134_WUFTH_HI_REG_MSK, KX134_WUFTH_HI_REG_MODE(CONFIG_KX134_WUFTH));
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_WUFC, KX134_WUFC, 1);
+      if (status < 0) {
+        return status;
+      }
+    #endif /* CONFIG_KX134_WUFTH */
 
-    status = kx134_set_reg(dev, CONFIG_KX134_BTSTH, KX134_BTSTH, 1);
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_reg_write_mask(dev, KX134_BTSTH, KX134_BTSTH_HI_REG_MSK, KX134_BTSTH_HI_REG_MODE(CONFIG_KX134_BTSTH));
-    if (status < 0) {
-      return status;
-    }
-    status = kx134_set_reg(dev, CONFIG_KX134_BTSC, KX134_BTSC, 1);
-    if (status < 0) {
-      return status;
-    }
+    #if defined(CONFIG_KX134_BTSTH)
+      status = kx134_set_reg(dev, CONFIG_KX134_BTSTH, KX134_BTSTH, 1);
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_reg_write_mask(dev, KX134_BTSWUFTH, KX134_BTSTH_HI_REG_MSK, KX134_BTSTH_HI_REG_MODE(CONFIG_KX134_BTSTH));
+      if (status < 0) {
+        return status;
+      }
+      status = kx134_set_reg(dev, CONFIG_KX134_BTSC, KX134_BTSC, 1);
+      if (status < 0) {
+        return status;
+      }
+    #endif /* CONFIG_KX134_BTSTH */
   }
 
   kx134_clear_interrupts(dev);
