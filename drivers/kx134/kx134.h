@@ -157,8 +157,8 @@
 #define KX134_INS2_BFI(x)			(((x) >> 6) & 0x1)
 #define KX134_INS2_WMI(x)			(((x) >> 5) & 0x1)
 #define KX134_INS2_DRDY(x)			(((x) >> 4) & 0x1)
-#define KX134_INS2_STS(x)			(((x) >> 3) & 0x1)
-#define KX134_INS2_DTS(x)			(((x) >> 2) & 0x1)
+#define KX134_INS2_DTS(x)			(((x) >> 3) & 0x1)
+#define KX134_INS2_STS(x)			(((x) >> 2) & 0x1)
 #define KX134_INS2_TPS(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS3 */
@@ -610,12 +610,16 @@ struct kx134_data {
         struct gpio_callback gpio_int2_cb;
         struct k_mutex trigger_mutex;
 
-	sensor_trigger_handler_t th_handler;
-	struct sensor_trigger th_trigger;
+	//sensor_trigger_handler_t th_handler;
+	//struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t drdy_handler;
 	struct sensor_trigger drdy_trigger;
-        sensor_trigger_handler_t any_handler;
-	struct sensor_trigger any_trigger;
+        sensor_trigger_handler_t idle_handler;
+	struct sensor_trigger idle_trigger;
+        sensor_trigger_handler_t wake_handler;
+	struct sensor_trigger wake_trigger;
+        sensor_trigger_handler_t dbtp_handler;
+	struct sensor_trigger dbtp_trigger;
 
         uint8_t int1_config;
         uint8_t int1_source;

@@ -420,13 +420,13 @@ static int kx134_sample_fetch(const struct device *dev,
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL);
 
-        ret = kx134_get_reg(dev, (uint8_t *)buf, KX134_INS1, 3);
-        if (ret) {
-		return ret;
-	}
-        data->tap_int = buf[0];
-        data->func_int = buf[1];
-        data->wkup_int = buf[2];
+ //       ret = kx134_get_reg(dev, (uint8_t *)buf, KX134_INS1, 3);
+ //       if (ret) {
+	//	return ret;
+	//}
+ //       data->tap_int = buf[0];
+ //       data->func_int = buf[1];
+ //       data->wkup_int = buf[2];
 
 
 	ret = kx134_get_reg(dev, (uint8_t *)buf, KX134_XOUT_L, sizeof(buf));
@@ -834,6 +834,8 @@ static int kx134_init(const struct device *dev)
         struct kx134_data *data = dev->data;
         uint8_t value[2];
 	int err;
+
+        data->dev = dev;
 
 #ifdef CONFIG_KX134_I2C
 	data->bus  = device_get_binding(cfg->i2c_port);

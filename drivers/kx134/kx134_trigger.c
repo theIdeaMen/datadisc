@@ -16,8 +16,7 @@
 
 LOG_MODULE_DECLARE(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
-#define TRIGGED_INT1    1
-#define TRIGGED_INT2    2
+#define TRIGGED_INT    1
 
 static void kx134_thread_cb(const struct device *dev) {
 const struct kx134_config *cfg = dev->config;
@@ -26,23 +25,28 @@ const struct kx134_config *cfg = dev->config;
   k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
 
   if (cfg->gpio_drdy.port &&
-      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT1)) {
+      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT)) {
 
     if (drv_data->drdy_handler != NULL) {
       drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
-      kx134_clear_interrupts(dev);
     }
+    kx134_clear_interrupts(dev);
     k_mutex_unlock(&drv_data->trigger_mutex);
     return;
   }
 
-  if (cfg->gpio_int.port &&
-      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT2)) {
+  if (cfg->gpio_int.port) {
 
-    if (drv_data->any_handler != NULL) {
-      drv_data->any_handler(dev, &drv_data->any_trigger);
-      kx134_clear_interrupts(dev);
+    if (drv_data->idle_handler != NULL && KX134_INS3_BTS(drv_data->wkup_int)) {
+      drv_data->idle_handler(dev, &drv_data->idle_trigger);
     }
+    else if (drv_data->wake_handler != NULL && KX134_INS3_WUFS(drv_data->wkup_int)) {
+      drv_data->wake_handler(dev, &drv_data->wake_trigger);
+    }
+    else if (drv_data->dbtp_handler != NULL && KX134_INS2_DTS(drv_data->func_int)) {
+      drv_data->dbtp_handler(dev, &drv_data->dbtp_trigger);
+    }
+    kx134_clear_interrupts(dev);
     k_mutex_unlock(&drv_data->trigger_mutex);
     return;
   }
@@ -54,7 +58,7 @@ static void kx134_gpio_int1_callback(const struct device *dev,
 
   ARG_UNUSED(pins);
 
-  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT1);
+  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT);
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -66,10 +70,17 @@ static void kx134_gpio_int1_callback(const struct device *dev,
 static void kx134_gpio_int2_callback(const struct device *dev, 
                                      struct gpio_callback *cb, uint32_t pins) {
   struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int2_cb);
+  uint8_t buf[6];
+  int ret;
 
   ARG_UNUSED(pins);
 
-  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT2);
+  ret = kx134_get_reg(drv_data->dev, (uint8_t *)buf, KX134_INS1, 3);
+  if (!ret) {
+    drv_data->tap_int = buf[0];
+    drv_data->func_int = buf[1];
+    drv_data->wkup_int = buf[2];
+  }
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -138,13 +149,11 @@ int kx134_trigger_any_set(const struct device *dev,
     return -ENOTSUP;
   }
 
-  k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
-  drv_data->any_trigger.chan = trig->chan;
-  drv_data->any_trigger.type = trig->type;
-  drv_data->any_handler = handler;
-  k_mutex_unlock(&drv_data->trigger_mutex);
-
   if (trig->type == SENSOR_TRIG_DOUBLE_TAP) {
+    drv_data->dbtp_trigger.chan = trig->chan;
+    drv_data->dbtp_trigger.type = trig->type;
+    drv_data->dbtp_handler = handler;
+
     // Turn off WU/BTS while using double tap for this accel
     status = kx134_reg_write_mask(dev, KX134_INC6, (KX134_INC6_BTSI2_MSK | KX134_INC6_WUFI2_MSK), 
                                   (KX134_INC6_BTSI2_MODE(0) | KX134_INC6_WUFI2_MODE(0)));
@@ -189,6 +198,10 @@ int kx134_trigger_any_set(const struct device *dev,
   }
 
   if (trig->type == KX134_SENSOR_TRIG_IDLE) {
+    drv_data->idle_trigger.chan = trig->chan;
+    drv_data->idle_trigger.type = trig->type;
+    drv_data->idle_handler = handler;
+
     // Turn off double tap while using WU/BTS for this accel
     status = kx134_reg_write_mask(dev, KX134_INC6, KX134_INC6_TDTI2_MSK, KX134_INC6_TDTI2_MODE(0));
     if (status < 0) {

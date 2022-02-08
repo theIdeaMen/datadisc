@@ -675,7 +675,7 @@ extern void accel_alpha_tap_thread(void) {
   }
 
   struct kx134_data *drv_data = dev->data;
-  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->dbtp_handler);
 
   while (1) {
     k_sem_take(&sem_accel_alpha_tap, K_FOREVER);
@@ -804,7 +804,7 @@ extern void accel_beta_idle_thread(void) {
   }
 
   struct kx134_data *drv_data = dev->data;
-  LOG_INF("dev: %p, cb: %p", dev, drv_data->any_handler);
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->idle_handler);
 
   while (1) {
     k_sem_take(&sem_accel_beta_idle, K_FOREVER);
