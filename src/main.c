@@ -220,7 +220,7 @@ static int setup_flash(struct fs_mount_t *mnt) {
       id, (unsigned int)pfa->fa_off, log_strdup(pfa->fa_dev_name),
       (unsigned int)pfa->fa_size);
 
-  if (rc == 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
+  if (rc == 0 && (IS_ENABLED(CONFIG_APP_WIPE_STORAGE) || datadisc_state == ERASE)) {
     LOG_INF("Erasing flash area ... ");
     rc = flash_area_erase(pfa, 0, pfa->fa_size);
     LOG_INF("%d\n", rc);
@@ -267,6 +267,14 @@ static void setup_disk(void) {
   struct fs_statvfs sbuf;
   char fname[MAX_PATH_LEN];
   int rc;
+
+  if (mp->mnt_point != NULL) {
+    rc = fs_unmount(mp);
+    if (rc < 0) {
+      LOG_ERR("Failed to unmount filesystem");
+      return;
+    }
+  }
 
   fs_dir_t_init(&dir);
 
@@ -1223,6 +1231,26 @@ void main(void) {
         break;
 
       case ERASE:
+        // Make sure no activity on FLASH bus
+        datadisc_state = IDLE;
+
+        err = usb_disable();
+        if (err != 0) {
+          LOG_ERR("Failed to disable USB");
+          return;
+        }
+        k_msleep(500);
+
+        datadisc_state = ERASE;
+        setup_disk();
+
+        err = usb_enable(NULL);
+        if (err != 0) {
+          LOG_ERR("Failed to enable USB");
+          return;
+        }
+
+        datadisc_state = IDLE;
         break;
 
       case DUMP:
