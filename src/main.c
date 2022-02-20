@@ -904,8 +904,8 @@ extern void magn_thread(void) {
   }
 }
 
-//K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -924,7 +924,6 @@ extern void runtime_compute_thread(void) {
   struct accel_msgq_item_t msgq_item;
   struct datalog_msgq_item_t data_item;
   struct datalog_msgq_item_t throw_away_item;
-  int32_t x_value, y_value, z_value;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
@@ -955,7 +954,7 @@ extern void runtime_compute_thread(void) {
     data_item.timestamp = msgq_item.timestamp;
     data_item.data = msgq_item.data;
 
-    LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
+    //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
 
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
@@ -1005,7 +1004,7 @@ extern void spi_flash_thread(void) {
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
   // *.ddl = DataDiscLog file, binary list of numbers
-  snprintf(fname, sizeof(fname), "%s/%u_%llu.ddl", mp->mnt_point, boot_count, log_start_time);
+  snprintf(fname, sizeof(fname), "%s/%u_%lu.ddl", mp->mnt_point, boot_count, (long unsigned int)log_start_time);
 
   fs_file_t_init(&file);
 
