@@ -544,9 +544,15 @@ struct accel_msgq_item_t {
   struct sensor_value data[3];
 } __packed;
 
+//struct datalog_msgq_item_t {
+//  size_t length;
+//  uint8_t data[50];
+//} __packed;
 struct datalog_msgq_item_t {
+  uint8_t id;
+  uint64_t timestamp;
+  struct sensor_value *data;
   size_t length;
-  uint8_t data[50];
 } __packed;
 
 K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 500, 4);
@@ -927,31 +933,32 @@ extern void runtime_compute_thread(void) {
 
     switch (msgq_item.id) {
     case 0x00:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%dt,%lu,-99999,-99999,-99999\n",
-          msgq_item.id, msgq_item.timestamp);
+      data_item.length = 1;
+      msgq_item.data[0].val1 = 0;
+      msgq_item.data[0].val2 = 0;
       break;
 
     case 0x1A:
     case 0x2B:
     case 0x3C:
-      x_value = sensor_value_to_32(&msgq_item.data[0]);
-      y_value = sensor_value_to_32(&msgq_item.data[1]);
-      z_value = sensor_value_to_32(&msgq_item.data[2]);
-
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%u,%d,%d,%d\n",
-          msgq_item.id, (uint32_t)msgq_item.timestamp, x_value, y_value, z_value);
+      data_item.length = 3;
       break;
 
     case 0xFF:
     default:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%no_data,%lu\n",
-          msgq_item.id, msgq_item.timestamp);
+      data_item.length = 1;
+      msgq_item.data[0].val1 = 9;
+      msgq_item.data[0].val2 = 9;
       break;
     }
+    data_item.id = msgq_item.id;
+    data_item.timestamp = msgq_item.timestamp;
+    data_item.data = msgq_item.data;
+
     LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
 
     /* Send the string to the FLASH write thread */
-    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0 && datadisc_state == LOG) {
+    while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
       k_msgq_get(&datalog_msgq, &throw_away_item, K_NO_WAIT);
     }
@@ -986,7 +993,7 @@ extern void spi_flash_thread(void) {
   uint64_t log_start_time;
   int rc;
   uint16_t data_size = 0;
-  uint8_t buffer[150];
+  uint8_t buffer[10];
   struct datalog_msgq_item_t data_item;
 
   log_start_time = k_uptime_get();
@@ -997,7 +1004,8 @@ extern void spi_flash_thread(void) {
   }
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
-  snprintf(fname, sizeof(fname), "%s/%u_%lu.csv", mp->mnt_point, boot_count, (uint32_t)log_start_time);
+  // *.ddl = DataDiscLog file, binary list of numbers
+  snprintf(fname, sizeof(fname), "%s/%u_%llu.ddl", mp->mnt_point, boot_count, log_start_time);
 
   fs_file_t_init(&file);
 
@@ -1007,7 +1015,7 @@ extern void spi_flash_thread(void) {
     goto out;
   }
 
-  snprintf(buffer, 5, "SOL\n");
+  snprintf(buffer, 5, "DDL\n");
 
   rc = fs_write(&file, buffer, strlen(buffer));
   if (rc < 0) {
@@ -1021,19 +1029,30 @@ extern void spi_flash_thread(void) {
     goto out;
   }
 
-  //datadisc_state = LOG;
-
   while (1) {
 
     k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
 
-    rc = fs_write(&file, data_item.data, data_item.length);
-    
+    rc = fs_write(&file, &data_item.id, 1);
     if (rc < 0) {
       LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
       goto out;
     }
-    data_size += data_item.length;
+    data_size += 1;
+
+    rc = fs_write(&file, &data_item.timestamp, sizeof(data_item.timestamp));
+    if (rc < 0) {
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
+      goto out;
+    }
+    data_size += sizeof(data_item.timestamp);
+
+    rc = fs_write(&file, data_item.data, sizeof(data_item.data) * data_item.length * 2);
+    if (rc < 0) {
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
+      goto out;
+    }
+    data_size += sizeof(data_item.data) * data_item.length * 2;
 
     if (data_size >= 1024) {
       rc = fs_sync(&file);
@@ -1055,6 +1074,10 @@ extern void spi_flash_thread(void) {
 
 out:
   datadisc_state = IDLE;
+
+  snprintf(buffer, 5, "EOF\n");
+
+  rc = fs_write(&file, buffer, strlen(buffer));
 
   rc = fs_close(&file);
   LOG_INF("%s close: %d\n", log_strdup(fname), rc);

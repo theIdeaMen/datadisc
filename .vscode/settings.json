@@ -1,8 +1,0 @@
-{
-    "nrf-connect.applications": [
-        "c:\\Users\\griffin.adams\\Documents\\GitHub\\datadisc",
-        "${workspaceFolder}"
-    ],
-    "nrf-connect.toolchain.path": "PATH",
-    "nrf-connect.topdir": "${nrf-connect.sdk:1.8.0}"
-}
