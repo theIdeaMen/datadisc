@@ -20,6 +20,7 @@
 #include <logging/log_ctrl.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
+#include <sys/reboot.h>
 #include <shell/shell.h>
 
 #include <ff.h>
@@ -1171,9 +1172,21 @@ static int cmd_version(const struct shell *shell, size_t argc, char **argv) {
   return 0;
 }
 
+static int cmd_reboot(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "Rebooting...");
+  sys_reboot(SYS_REBOOT_COLD);
+
+  return 0;
+}
+
 SHELL_CMD_REGISTER(ping, NULL, "Demo commands", cmd_demo_ping);
 
 SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
+
+SHELL_CMD_REGISTER(reboot, NULL, "Reboot device", cmd_reboot);
 
 #endif
 
