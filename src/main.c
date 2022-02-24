@@ -908,7 +908,7 @@ extern void magn_thread(void) {
 K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
-
+uint16_t temp_counter = 0;
 /********************************************
  * Thread for crunching data during runtime
  ********************************************/
@@ -956,6 +956,9 @@ extern void runtime_compute_thread(void) {
     data_item.data = msgq_item.data;
 
     //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
+    if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
+      temp_counter += 1;
+    }
 
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
@@ -1253,6 +1256,8 @@ void main(void) {
 
       switch (datadisc_state) {
       case IDLE:
+        LOG_INF("Buffer underflows during log: %d\n", temp_counter);
+        temp_counter = 0;
         break;
 
       case LOG:

@@ -11,7 +11,7 @@
 		zephyr,uart-mcumgr = &uart0;
 		zephyr,bt-mon-uart = &uart0;
 		zephyr,bt-c2h-uart = &uart0;
-		nordic,pm-ext-flash = &at25sl321;
+		nordic,pm-ext-flash = &mx25u32;
 	};
 
 	leds {
@@ -168,21 +168,21 @@
 	sck-pin = <17>;
 	io-pins = <13>, <14>, <15>, <16>;
 	csn-pins = <18>;
-	at25sl321: at25sl321@0 {
+	mx25u32: mx25u3232f@0 {
 		compatible = "nordic,qspi-nor";
 		reg = <0>;
-		/* AT25SL321 has dif opcode for quad, so we're stuck with pp */
-		writeoc = "pp";
-		/* AT25SL321 supports all readoc options */
+		/* MX25U32 supports all writeoc options */
+		writeoc = "pp4io";
+		/* MX25U32 supports all readoc options */
 		#readoc = "read4io";
 		#quad-enable-requirements = "S2B1v4";
 		sck-frequency = <25000000>;
-		label = "AT25SL321";
-		jedec-id = [1f 42 16];
+		label = "MX25U32";
+		jedec-id = [c2 25 36];
 		size = <33554432>;
 		has-dpd;
-		t-enter-dpd = <3000>;
-		t-exit-dpd = <3000>;
+		t-enter-dpd = <10000>;
+		t-exit-dpd = <30000>;
 	};
 };
 
