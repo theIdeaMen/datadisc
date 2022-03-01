@@ -539,25 +539,25 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
 /********************************************
  * MSGQ buffers
  ********************************************/
-struct accel_msgq_item_t {
-  uint8_t id;
+typedef struct {
+  float data[3];
   uint64_t timestamp;
-  struct sensor_value data[3];
-} __packed;
+  uint8_t id;
+}__attribute__((aligned(4))) accel_msgq_item_t;
 
 //struct datalog_msgq_item_t {
 //  size_t length;
 //  uint8_t data[50];
 //} __packed;
-struct datalog_msgq_item_t {
-  uint8_t id;
+typedef struct {
+  float *data;
   uint64_t timestamp;
-  struct sensor_value *data;
   size_t length;
-} __packed;
+  uint8_t id;
+}__attribute__((aligned(4))) datalog_msgq_item_t;
 
-K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 500, 4);
-K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 4000, 4);
+K_MSGQ_DEFINE(accel_msgq, sizeof(accel_msgq_item_t), 500, 4);
+K_MSGQ_DEFINE(datalog_msgq, sizeof(datalog_msgq_item_t), 5000, 4);
 
 
 /********************************************
@@ -598,8 +598,8 @@ extern void accel_alpha_drdy_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
-  struct sensor_value int_source;
-  struct accel_msgq_item_t msgq_item;
+  accel_msgq_item_t msgq_item;
+  struct sensor_value acc_xyz[3];
 
   if (!dev) {
     LOG_ERR("Devicetree has no kionix,kx134-1211 node");
@@ -623,15 +623,19 @@ extern void accel_alpha_drdy_thread(void) {
   struct kx134_data *drv_data = dev->data;
   LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
+  msgq_item.id = ACCEL_ALPHA_ID;
+
   while (1) {
     k_sem_take(&sem_accel_alpha_drdy, K_FOREVER);
 
     if (datadisc_state == LOG) {
 
-      msgq_item.id = ACCEL_ALPHA_ID;
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
+      msgq_item.data[0] = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data[1] = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data[2] = (float)sensor_value_to_double(&acc_xyz[2]);
       
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -727,7 +731,8 @@ extern void accel_beta_drdy_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
-  struct accel_msgq_item_t msgq_item;
+  accel_msgq_item_t msgq_item;
+  struct sensor_value acc_xyz[3];
 
   if (!dev) {
     LOG_ERR("Devicetree has no kionix,kx134-1211 node");
@@ -751,16 +756,20 @@ extern void accel_beta_drdy_thread(void) {
   struct kx134_data *drv_data = dev->data;
   LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
+  msgq_item.id = ACCEL_BETA_ID;
+
   while (1) {
 
     k_sem_take(&sem_accel_beta_drdy, K_FOREVER);
 
     if (datadisc_state == LOG) {
 
-      msgq_item.id = ACCEL_BETA_ID;
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
+      msgq_item.data[0] = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data[1] = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data[2] = (float)sensor_value_to_double(&acc_xyz[2]);
       
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -838,7 +847,7 @@ K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
  ********************************************/
 #define MAGN_DEVICE DT_LABEL(DT_INST(0, rohm_bm1422agmv))
 
-/* Unique IDs to carry into CSV */
+/* Unique IDs to carry into log */
 #define MAGN_ID  0x3C;
 
 K_SEM_DEFINE(magn_sem, 0, 1);
@@ -864,7 +873,8 @@ extern void magn_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(MAGN_DEVICE);
-  struct accel_msgq_item_t msgq_item;
+  accel_msgq_item_t msgq_item;
+  struct sensor_value magn_xyz[3];
 
   if (!dev) {
     LOG_ERR("Devicetree has no rohm,bm1422agmv node");
@@ -885,16 +895,20 @@ extern void magn_thread(void) {
     return;
   }
 
+  msgq_item.id = MAGN_ID;
+
   while (1) {
 
     k_sem_take(&magn_sem, K_FOREVER);
 
     if (datadisc_state == LOG) {
-
-      msgq_item.id = MAGN_ID;
+      
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, msgq_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
+      msgq_item.data[0] = (float)sensor_value_to_double(&magn_xyz[0]);
+      msgq_item.data[1] = (float)sensor_value_to_double(&magn_xyz[1]);
+      msgq_item.data[2] = (float)sensor_value_to_double(&magn_xyz[2]);
 
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -922,9 +936,9 @@ extern void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_msgq_item_t msgq_item;
-  struct datalog_msgq_item_t data_item;
-  struct datalog_msgq_item_t throw_away_item;
+  accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t data_item;
+  datalog_msgq_item_t throw_away_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
@@ -934,8 +948,7 @@ extern void runtime_compute_thread(void) {
     switch (msgq_item.id) {
     case 0x00:
       data_item.length = 1;
-      msgq_item.data[0].val1 = 0;
-      msgq_item.data[0].val2 = 0;
+      msgq_item.data[0] = 0;
       break;
 
     case 0x1A:
@@ -947,14 +960,16 @@ extern void runtime_compute_thread(void) {
     case 0xFF:
     default:
       data_item.length = 1;
-      msgq_item.data[0].val1 = 9;
-      msgq_item.data[0].val2 = 9;
+      msgq_item.data[0] = 9;
       break;
     }
     data_item.id = msgq_item.id;
     data_item.timestamp = msgq_item.timestamp;
-    data_item.data = msgq_item.data;
-
+    //memcpy(data_item.data, msgq_item.data, sizeof(float) * data_item.length);
+    data_item.data[0] = msgq_item.data[0];
+    data_item.data[1] = msgq_item.data[1];
+    data_item.data[2] = msgq_item.data[2];
+    
     //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
     if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
       temp_counter += 1;
@@ -997,7 +1012,7 @@ extern void spi_flash_thread(void) {
   int rc;
   uint16_t data_size = 0;
   uint8_t buffer[10];
-  struct datalog_msgq_item_t data_item;
+  datalog_msgq_item_t data_item;
 
   log_start_time = k_uptime_get();
 
@@ -1050,14 +1065,14 @@ extern void spi_flash_thread(void) {
     }
     data_size += sizeof(data_item.timestamp);
 
-    rc = fs_write(&file, data_item.data, sizeof(data_item.data) * data_item.length * 2);
+    rc = fs_write(&file, data_item.data, sizeof(data_item.data) * data_item.length);
     if (rc < 0) {
       LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
       goto out;
     }
-    data_size += sizeof(data_item.data) * data_item.length * 2;
+    data_size += sizeof(data_item.data) * data_item.length;
 
-    if (data_size >= 1024) {
+    if (data_size >= 4096) {
       rc = fs_sync(&file);
       if (rc < 0) {
         LOG_ERR("FAIL: sync %s: %d\n", log_strdup(fname), rc);

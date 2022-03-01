@@ -174,9 +174,9 @@
 		/* MX25U32 supports all writeoc options */
 		writeoc = "pp4io";
 		/* MX25U32 supports all readoc options */
-		#readoc = "read4io";
-		#quad-enable-requirements = "S2B1v4";
-		sck-frequency = <25000000>;
+		readoc = "read4io";
+		quad-enable-requirements = "S1B6";
+		sck-frequency = <96000000>;
 		label = "MX25U32";
 		jedec-id = [c2 25 36];
 		size = <33554432>;
