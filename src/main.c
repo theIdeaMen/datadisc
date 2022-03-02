@@ -540,8 +540,10 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
  * MSGQ buffers
  ********************************************/
 typedef struct {
-  float data[3];
   uint64_t timestamp;
+  float data_x;
+  float data_y;
+  float data_z;
   uint8_t id;
 }__attribute__((aligned(4))) accel_msgq_item_t;
 
@@ -550,10 +552,12 @@ typedef struct {
 //  uint8_t data[50];
 //} __packed;
 typedef struct {
-  float *data;
   uint64_t timestamp;
-  size_t length;
+  float data_x;
+  float data_y;
+  float data_z;
   uint8_t id;
+  size_t length;
 }__attribute__((aligned(4))) datalog_msgq_item_t;
 
 K_MSGQ_DEFINE(accel_msgq, sizeof(accel_msgq_item_t), 500, 4);
@@ -633,9 +637,9 @@ extern void accel_alpha_drdy_thread(void) {
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
-      msgq_item.data[0] = (float)sensor_value_to_double(&acc_xyz[0]);
-      msgq_item.data[1] = (float)sensor_value_to_double(&acc_xyz[1]);
-      msgq_item.data[2] = (float)sensor_value_to_double(&acc_xyz[2]);
+      msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
       
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -767,9 +771,9 @@ extern void accel_beta_drdy_thread(void) {
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
-      msgq_item.data[0] = (float)sensor_value_to_double(&acc_xyz[0]);
-      msgq_item.data[1] = (float)sensor_value_to_double(&acc_xyz[1]);
-      msgq_item.data[2] = (float)sensor_value_to_double(&acc_xyz[2]);
+      msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
       
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -906,9 +910,9 @@ extern void magn_thread(void) {
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
-      msgq_item.data[0] = (float)sensor_value_to_double(&magn_xyz[0]);
-      msgq_item.data[1] = (float)sensor_value_to_double(&magn_xyz[1]);
-      msgq_item.data[2] = (float)sensor_value_to_double(&magn_xyz[2]);
+      msgq_item.data_x = (float)sensor_value_to_double(&magn_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&magn_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&magn_xyz[2]);
 
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -945,10 +949,12 @@ extern void runtime_compute_thread(void) {
 
     k_msgq_get(&accel_msgq, &msgq_item, K_FOREVER);
 
+    memcpy(&data_item, &msgq_item, sizeof(accel_msgq_item_t));
+
     switch (msgq_item.id) {
     case 0x00:
       data_item.length = 1;
-      msgq_item.data[0] = 0;
+      data_item.data_x = 0;
       break;
 
     case 0x1A:
@@ -960,15 +966,9 @@ extern void runtime_compute_thread(void) {
     case 0xFF:
     default:
       data_item.length = 1;
-      msgq_item.data[0] = 9;
+      data_item.data_x = 9;
       break;
     }
-    data_item.id = msgq_item.id;
-    data_item.timestamp = msgq_item.timestamp;
-    //memcpy(data_item.data, msgq_item.data, sizeof(float) * data_item.length);
-    data_item.data[0] = msgq_item.data[0];
-    data_item.data[1] = msgq_item.data[1];
-    data_item.data[2] = msgq_item.data[2];
     
     //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
     if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
@@ -1065,12 +1065,12 @@ extern void spi_flash_thread(void) {
     }
     data_size += sizeof(data_item.timestamp);
 
-    rc = fs_write(&file, data_item.data, sizeof(data_item.data) * data_item.length);
+    rc = fs_write(&file, &data_item.data_x, sizeof(float) * data_item.length);
     if (rc < 0) {
       LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
       goto out;
     }
-    data_size += sizeof(data_item.data) * data_item.length;
+    data_size += sizeof(float) * data_item.length;
 
     if (data_size >= 4096) {
       rc = fs_sync(&file);
