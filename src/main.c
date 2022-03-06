@@ -178,18 +178,11 @@ static void wait_on_log_flushed(void) {
 }
 
 uint32_t uptime_get_us(void) {
-
   return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
-
 }
 
-static inline int32_t sensor_value_to_32(const struct sensor_value *val)
-{
+static inline int32_t sensor_value_to_32(const struct sensor_value *val) {
   return val->val1 * 1000000 + val->val2;
-}
-
-void pack_into_char(uint8_t *dest, const void *ptr, size_t size) {
-  
 }
 
 static const char *now_str(void) {
@@ -921,10 +914,30 @@ extern void magn_thread(void) {
 K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
-uint16_t temp_counter = 0;
+
 /********************************************
  * Thread for crunching data during runtime
  ********************************************/
+struct Comp_Data {
+  float prev_magn;
+  float now_magn;
+  uint64_t prev_time;
+  uint64_t now_time;
+};
+
+static inline float magnitude(const datalog_msgq_item_t *item) {
+  return sqrtf(item->data_x*item->data_x + item->data_y*item->data_y + item->data_z*item->data_z);
+}
+
+float running_jerk(struct Comp_Data *data) {
+  float jerk;
+  jerk = abs(data->now_magn - data->prev_magn) / ((float)(data->now_time - data->prev_time)/1000000.0);
+  data->prev_magn = data->now_magn;
+  data->prev_time = data->now_time;
+  return jerk;
+}
+uint16_t temp_counter = 0;
+
 extern void runtime_compute_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
@@ -938,6 +951,14 @@ extern void runtime_compute_thread(void) {
   datalog_msgq_item_t msgq_item;
   datalog_msgq_item_t data_item;
   datalog_msgq_item_t throw_away_item;
+  
+  float any_jerk = 0;
+
+  struct Comp_Data acc1_cd, acc2_cd;
+  acc1_cd.prev_magn = 0;
+  acc1_cd.prev_time = 0;
+  acc2_cd.prev_magn = 0;
+  acc2_cd.prev_time = 0;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
@@ -951,6 +972,10 @@ extern void runtime_compute_thread(void) {
       break;
 
     case 0x1A:
+      acc1_cd.now_magn = magnitude(&data_item);
+      acc1_cd.now_time = data_item.timestamp;
+      any_jerk = running_jerk(&acc1_cd);
+      break;
     case 0x2B:
     case 0x3C:
       break;
@@ -965,6 +990,10 @@ extern void runtime_compute_thread(void) {
     //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
     if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
       temp_counter += 1;
+    }
+
+    if (any_jerk > 500) {
+      LOG_INF("Jerk is %d\n", (int)any_jerk);
     }
 
     /* Send the string to the FLASH write thread */
