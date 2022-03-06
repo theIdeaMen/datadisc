@@ -177,15 +177,19 @@ static void wait_on_log_flushed(void) {
   }
 }
 
-uint64_t uptime_get_us(void) {
+uint32_t uptime_get_us(void) {
 
-  return k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC;
+  return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
 
 }
 
 static inline int32_t sensor_value_to_32(const struct sensor_value *val)
 {
-	return val->val1 * 1000000 + val->val2;
+  return val->val1 * 1000000 + val->val2;
+}
+
+void pack_into_char(uint8_t *dest, const void *ptr, size_t size) {
+  
 }
 
 static const char *now_str(void) {
@@ -540,27 +544,15 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
  * MSGQ buffers
  ********************************************/
 typedef struct {
-  uint64_t timestamp;
+  uint32_t timestamp;
   float data_x;
   float data_y;
   float data_z;
   uint8_t id;
-}__attribute__((aligned(4))) accel_msgq_item_t;
-
-//struct datalog_msgq_item_t {
-//  size_t length;
-//  uint8_t data[50];
-//} __packed;
-typedef struct {
-  uint64_t timestamp;
-  float data_x;
-  float data_y;
-  float data_z;
-  uint8_t id;
-  size_t length;
+  uint8_t length;
 }__attribute__((aligned(4))) datalog_msgq_item_t;
 
-K_MSGQ_DEFINE(accel_msgq, sizeof(accel_msgq_item_t), 500, 4);
+K_MSGQ_DEFINE(accel_msgq, sizeof(datalog_msgq_item_t), 500, 4);
 K_MSGQ_DEFINE(datalog_msgq, sizeof(datalog_msgq_item_t), 5000, 4);
 
 
@@ -602,7 +594,7 @@ extern void accel_alpha_drdy_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
-  accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
   struct sensor_value acc_xyz[3];
 
   if (!dev) {
@@ -628,6 +620,7 @@ extern void accel_alpha_drdy_thread(void) {
   LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
   msgq_item.id = ACCEL_ALPHA_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
     k_sem_take(&sem_accel_alpha_drdy, K_FOREVER);
@@ -735,7 +728,7 @@ extern void accel_beta_drdy_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
-  accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
   struct sensor_value acc_xyz[3];
 
   if (!dev) {
@@ -761,6 +754,7 @@ extern void accel_beta_drdy_thread(void) {
   LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
 
   msgq_item.id = ACCEL_BETA_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
 
@@ -877,7 +871,7 @@ extern void magn_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(MAGN_DEVICE);
-  accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
   struct sensor_value magn_xyz[3];
 
   if (!dev) {
@@ -900,6 +894,7 @@ extern void magn_thread(void) {
   }
 
   msgq_item.id = MAGN_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
 
@@ -940,7 +935,7 @@ extern void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
   datalog_msgq_item_t data_item;
   datalog_msgq_item_t throw_away_item;
 
@@ -949,23 +944,20 @@ extern void runtime_compute_thread(void) {
 
     k_msgq_get(&accel_msgq, &msgq_item, K_FOREVER);
 
-    memcpy(&data_item, &msgq_item, sizeof(accel_msgq_item_t));
+    memcpy(&data_item, &msgq_item, sizeof(datalog_msgq_item_t));
 
     switch (msgq_item.id) {
     case 0x00:
-      data_item.length = 1;
-      data_item.data_x = 0;
       break;
 
     case 0x1A:
     case 0x2B:
     case 0x3C:
-      data_item.length = 3;
       break;
 
     case 0xFF:
     default:
-      data_item.length = 1;
+      data_item.length = 10;
       data_item.data_x = 9;
       break;
     }
@@ -1008,13 +1000,13 @@ extern void spi_flash_thread(void) {
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
   unsigned int id = (uintptr_t)mp->storage_dev;
-  uint64_t log_start_time;
+  uint32_t log_start_time;
   int rc;
   uint16_t data_size = 0;
-  uint8_t buffer[10];
+  uint8_t buffer[20];
   datalog_msgq_item_t data_item;
 
-  log_start_time = k_uptime_get();
+  log_start_time = k_uptime_get_32();
 
   if (!mp->mnt_point) {
     LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
@@ -1051,26 +1043,17 @@ extern void spi_flash_thread(void) {
 
     k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
 
-    rc = fs_write(&file, &data_item.id, 1);
-    if (rc < 0) {
-      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
-      goto out;
-    }
-    data_size += 1;
+    memcpy(buffer, &data_item.length, 1);
+    memcpy(buffer+1, &data_item.id, 1);
+    memcpy(buffer+2, &data_item.timestamp, sizeof(data_item.timestamp));
+    memcpy(buffer+2+sizeof(data_item.timestamp), &data_item.data_x, data_item.length - 6);
 
-    rc = fs_write(&file, &data_item.timestamp, sizeof(data_item.timestamp));
+    rc = fs_write(&file, buffer, data_item.length);
     if (rc < 0) {
       LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
       goto out;
     }
-    data_size += sizeof(data_item.timestamp);
-
-    rc = fs_write(&file, &data_item.data_x, sizeof(float) * data_item.length);
-    if (rc < 0) {
-      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
-      goto out;
-    }
-    data_size += sizeof(float) * data_item.length;
+    data_size += data_item.length;
 
     if (data_size >= 4096) {
       rc = fs_sync(&file);
@@ -1085,7 +1068,7 @@ extern void spi_flash_thread(void) {
       goto out;
     }
 
-    if ((uint64_t)k_uptime_get() - log_start_time > 20000) {
+    if (k_uptime_get_32() - log_start_time > 20000) {
       datadisc_state = IDLE;
     }
   }
