@@ -89,6 +89,29 @@ FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 static struct fs_mount_t fs_mnt;
 
 
+/********************************************
+ * MSGQ buffers
+ ********************************************/
+typedef struct {
+  uint32_t timestamp;
+  float data_x;
+  float data_y;
+  float data_z;
+  uint8_t id;
+  uint8_t length;
+}__attribute__((aligned(4))) datalog_msgq_item_t;
+
+K_MSGQ_DEFINE(accel_msgq, sizeof(datalog_msgq_item_t), 500, 4);
+K_MSGQ_DEFINE(datalog_msgq, sizeof(datalog_msgq_item_t), 5000, 4);
+
+struct Comp_Data {
+  float prev_magn;
+  float now_magn;
+  uint64_t prev_time;
+  uint64_t now_time;
+};
+
+
 /** A discharge curve specific to the power source. */
 // TODO measure DataDisc battery curve
 //static const struct battery_level_point levels[] = {
@@ -170,6 +193,18 @@ unsigned int soc_percent = 0;
 *   Utility Functions
 *
 ****************************************************************/
+
+static inline float magnitude(const datalog_msgq_item_t *item) {
+  return sqrtf(item->data_x*item->data_x + item->data_y*item->data_y + item->data_z*item->data_z);
+}
+
+float running_jerk(struct Comp_Data *data) {
+  float jerk;
+  jerk = abs(data->now_magn - data->prev_magn) / ((float)(data->now_time - data->prev_time)/1000000.0);
+  data->prev_magn = data->now_magn;
+  data->prev_time = data->now_time;
+  return jerk;
+}
 
 static void wait_on_log_flushed(void) {
   while (log_buffered_cnt()) {
@@ -532,23 +567,6 @@ K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
     NULL, NULL, NULL, PRIORITY, 0, 0);
 
 
-
-/********************************************
- * MSGQ buffers
- ********************************************/
-typedef struct {
-  uint32_t timestamp;
-  float data_x;
-  float data_y;
-  float data_z;
-  uint8_t id;
-  uint8_t length;
-}__attribute__((aligned(4))) datalog_msgq_item_t;
-
-K_MSGQ_DEFINE(accel_msgq, sizeof(datalog_msgq_item_t), 500, 4);
-K_MSGQ_DEFINE(datalog_msgq, sizeof(datalog_msgq_item_t), 5000, 4);
-
-
 /********************************************
  * Accelerometers
  ********************************************/
@@ -724,6 +742,17 @@ extern void accel_beta_drdy_thread(void) {
   datalog_msgq_item_t msgq_item;
   struct sensor_value acc_xyz[3];
 
+  uint16_t sample_counter = 0;
+  uint8_t sample_mod = 1;
+    
+  float any_jerk = 0;
+
+  struct Comp_Data jerk_help;
+  jerk_help.prev_magn = 0;
+  jerk_help.prev_time = 0;
+
+  uint32_t prev_time = 0;
+
   if (!dev) {
     LOG_ERR("Devicetree has no kionix,kx134-1211 node");
     return;
@@ -755,17 +784,37 @@ extern void accel_beta_drdy_thread(void) {
 
     if (datadisc_state == LOG) {
 
+      sample_counter += 1;
+
       msgq_item.timestamp = uptime_get_us();
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
       msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
       msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
       msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
-      
+
+      jerk_help.now_magn = magnitude(&msgq_item);
+      jerk_help.now_time = msgq_item.timestamp;
+      any_jerk = running_jerk(&jerk_help);
+
+      if (any_jerk > 500) {
+        LOG_INF("Jerk is %d\n", (int)any_jerk);
+        // reset speed-up timer
+        prev_time = msgq_item.timestamp;
+        sample_mod = 1;
+      }
+
+      if (msgq_item.timestamp - prev_time > 10000) {
+        // Only save every 10th sample now
+        sample_mod = 10;
+      }
+
       /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      if (sample_counter % sample_mod == 0) {
+        while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+          /* message queue is full: purge old data & try again */
+          k_msgq_purge(&accel_msgq);
+        }
       }
     }
   }
@@ -918,24 +967,6 @@ K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
 /********************************************
  * Thread for crunching data during runtime
  ********************************************/
-struct Comp_Data {
-  float prev_magn;
-  float now_magn;
-  uint64_t prev_time;
-  uint64_t now_time;
-};
-
-static inline float magnitude(const datalog_msgq_item_t *item) {
-  return sqrtf(item->data_x*item->data_x + item->data_y*item->data_y + item->data_z*item->data_z);
-}
-
-float running_jerk(struct Comp_Data *data) {
-  float jerk;
-  jerk = abs(data->now_magn - data->prev_magn) / ((float)(data->now_time - data->prev_time)/1000000.0);
-  data->prev_magn = data->now_magn;
-  data->prev_time = data->now_time;
-  return jerk;
-}
 uint16_t temp_counter = 0;
 
 extern void runtime_compute_thread(void) {
@@ -951,14 +982,6 @@ extern void runtime_compute_thread(void) {
   datalog_msgq_item_t msgq_item;
   datalog_msgq_item_t data_item;
   datalog_msgq_item_t throw_away_item;
-  
-  float any_jerk = 0;
-
-  struct Comp_Data acc1_cd, acc2_cd;
-  acc1_cd.prev_magn = 0;
-  acc1_cd.prev_time = 0;
-  acc2_cd.prev_magn = 0;
-  acc2_cd.prev_time = 0;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
@@ -972,10 +995,6 @@ extern void runtime_compute_thread(void) {
       break;
 
     case 0x1A:
-      acc1_cd.now_magn = magnitude(&data_item);
-      acc1_cd.now_time = data_item.timestamp;
-      any_jerk = running_jerk(&acc1_cd);
-      break;
     case 0x2B:
     case 0x3C:
       break;
@@ -986,14 +1005,9 @@ extern void runtime_compute_thread(void) {
       data_item.data_x = 9;
       break;
     }
-    
-    //LOG_INF("[0x%X] %d", msgq_item.id, k_msgq_num_free_get(&datalog_msgq));
+
     if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
       temp_counter += 1;
-    }
-
-    if (any_jerk > 500) {
-      LOG_INF("Jerk is %d\n", (int)any_jerk);
     }
 
     /* Send the string to the FLASH write thread */
