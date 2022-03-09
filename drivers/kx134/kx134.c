@@ -758,9 +758,10 @@ static int kx134_chip_init(const struct device *dev)
 		return ret;
 	}
 
+        data->selected_range = kx134_get_kconfig_gsel();
         ret = kx134_reg_write_mask(dev, KX134_CNTL1,
 				      KX134_CNTL1_GSEL_MSK,
-				      KX134_CNTL1_GSEL_MODE(kx134_get_kconfig_gsel()));
+				      KX134_CNTL1_GSEL_MODE(data->selected_range));
 	if (ret) {
 		return ret;
 	}

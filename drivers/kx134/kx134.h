@@ -601,7 +601,7 @@ struct kx134_data {
 		};
 	} __packed;
 
-        uint8_t selected_range;
+        enum kx134_gsel selected_range;
 
 #if defined(CONFIG_KX134_TRIGGER)
         const struct device *dev;

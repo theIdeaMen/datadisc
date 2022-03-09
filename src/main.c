@@ -607,6 +607,17 @@ extern void accel_alpha_drdy_thread(void) {
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
   datalog_msgq_item_t msgq_item;
   struct sensor_value acc_xyz[3];
+  
+  uint16_t sample_counter = 0;
+  uint8_t sample_mod = 1;
+    
+  float any_jerk = 0;
+
+  struct Comp_Data jerk_help;
+  jerk_help.prev_magn = 0;
+  jerk_help.prev_time = 0;
+
+  uint32_t prev_time = 0;
 
   if (!dev) {
     LOG_ERR("Devicetree has no kionix,kx134-1211 node");
@@ -634,9 +645,12 @@ extern void accel_alpha_drdy_thread(void) {
   msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
+
     k_sem_take(&sem_accel_alpha_drdy, K_FOREVER);
 
     if (datadisc_state == LOG) {
+
+      sample_counter += 1;
 
       msgq_item.timestamp = uptime_get_us();
 
@@ -644,11 +658,28 @@ extern void accel_alpha_drdy_thread(void) {
       msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
       msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
       msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
-      
+
+      jerk_help.now_magn = magnitude(&msgq_item);
+      jerk_help.now_time = msgq_item.timestamp;
+      any_jerk = running_jerk(&jerk_help);
+
+      if (any_jerk > 500) {
+        // reset speed-up timer
+        prev_time = msgq_item.timestamp;
+        sample_mod = 1;
+      }
+
+      if (msgq_item.timestamp - prev_time > 10000) {
+        // Only save every 10th sample now
+        sample_mod = 10;
+      }
+
       /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      if (sample_counter % sample_mod == 0) {
+        while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+          /* message queue is full: purge old data & try again */
+          k_msgq_purge(&accel_msgq);
+        }
       }
     }
   }
@@ -798,7 +829,6 @@ extern void accel_beta_drdy_thread(void) {
       any_jerk = running_jerk(&jerk_help);
 
       if (any_jerk > 500) {
-        LOG_INF("Jerk is %d\n", (int)any_jerk);
         // reset speed-up timer
         prev_time = msgq_item.timestamp;
         sample_mod = 1;
