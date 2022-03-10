@@ -739,6 +739,8 @@ extern void accel_alpha_tap_thread(void) {
     k_sem_take(&sem_accel_alpha_tap, K_FOREVER);
 
     LOG_INF("Double Tap!\n");
+
+    datadisc_state = LOG;
     k_msleep(250);
   }
 }
@@ -904,6 +906,8 @@ extern void accel_beta_idle_thread(void) {
     k_sem_take(&sem_accel_beta_idle, K_FOREVER);
 
     LOG_INF("Idle detected!\n");
+
+    datadisc_state = IDLE;
     k_msleep(250);
   }
 }
@@ -1056,19 +1060,9 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
 /********************************************
  * Q-SPI FLASH
  ********************************************/
-uint8_t fname[MAX_PATH_LEN];    // Buffer created outside thread to avoid stack overflow
+    // Buffer created outside thread to avoid stack overflow
 
 extern void spi_flash_thread(void) {
-
-  //k_mutex_lock(&init_mut, K_FOREVER);
-
-  //while (datadisc_state == INIT) {
-  //  k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
-  //}
-
-  //k_mutex_unlock(&init_mut);
-
-  //k_thread_system_pool_assign(k_current_get());
 
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
@@ -1077,9 +1071,13 @@ extern void spi_flash_thread(void) {
   int rc;
   uint16_t data_size = 0;
   uint8_t buffer[20];
+  uint8_t latest_fname[20];
+  uint8_t oldest_fname[20];
   datalog_msgq_item_t data_item;
 
   log_start_time = k_uptime_get_32();
+  snprintf(latest_fname, sizeof(latest_fname), "%s/latest.ddl", mp->mnt_point);
+  snprintf(oldest_fname, sizeof(oldest_fname), "%s/oldest.ddl", mp->mnt_point);
 
   if (!mp->mnt_point) {
     LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
@@ -1088,13 +1086,23 @@ extern void spi_flash_thread(void) {
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
   // *.ddl = DataDiscLog file, binary list of numbers
-  snprintf(fname, sizeof(fname), "%s/%u_%lu.ddl", mp->mnt_point, boot_count, (long unsigned int)log_start_time);
-
-  fs_file_t_init(&file);
-
-  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
+  // delete oldest log
+  rc = fs_unlink(oldest_fname);
   if (rc < 0) {
-    LOG_ERR("FAIL: open %s: %d\n", log_strdup(fname), rc);
+    LOG_INF("'oldest.ddl' not found or read-only: %d\n", rc);
+  }
+
+  // rename old log to oldest log
+  rc = fs_rename(latest_fname, oldest_fname);
+  if (rc < 0) {
+    LOG_INF("'latest.ddl' not found or read-only: %d\n", rc);
+  }
+
+  // create new log
+  fs_file_t_init(&file);
+  rc = fs_open(&file, latest_fname, FS_O_CREATE | FS_O_RDWR);
+  if (rc < 0) {
+    LOG_ERR("FAIL: open %s: %d\n", log_strdup(latest_fname), rc);
     goto out;
   }
 
@@ -1108,7 +1116,7 @@ extern void spi_flash_thread(void) {
 
   rc = fs_sync(&file);
   if (rc < 0) {
-    LOG_ERR("FAIL: sync %s: %d\n", log_strdup(fname), rc);
+    LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
     goto out;
   }
 
@@ -1123,7 +1131,7 @@ extern void spi_flash_thread(void) {
 
     rc = fs_write(&file, buffer, data_item.length);
     if (rc < 0) {
-      LOG_ERR("FAIL: write %s: %d\n", log_strdup(fname), rc);
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(latest_fname), rc);
       goto out;
     }
     data_size += data_item.length;
@@ -1131,7 +1139,7 @@ extern void spi_flash_thread(void) {
     if (data_size >= 4096) {
       rc = fs_sync(&file);
       if (rc < 0) {
-        LOG_ERR("FAIL: sync %s: %d\n", log_strdup(fname), rc);
+        LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
         goto out;
       }
       data_size = 0;
@@ -1154,7 +1162,7 @@ out:
   rc = fs_write(&file, buffer, strlen(buffer));
 
   rc = fs_close(&file);
-  LOG_INF("%s close: %d\n", log_strdup(fname), rc);
+  LOG_INF("%s close: %d\n", log_strdup(latest_fname), rc);
 
   k_msgq_purge(&accel_msgq);
   k_msgq_purge(&datalog_msgq);
@@ -1338,6 +1346,8 @@ void main(void) {
               spi_flash_thread,
               NULL, NULL, NULL,
               PRIORITY + 2, 0, K_NO_WAIT);
+        } else {
+          k_thread_start(spi_flash_tid);
         }
         break;
 
