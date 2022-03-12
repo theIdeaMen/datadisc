@@ -1075,99 +1075,103 @@ extern void spi_flash_thread(void) {
   uint8_t oldest_fname[20];
   datalog_msgq_item_t data_item;
 
-  log_start_time = k_uptime_get_32();
   snprintf(latest_fname, sizeof(latest_fname), "%s/latest.ddl", mp->mnt_point);
   snprintf(oldest_fname, sizeof(oldest_fname), "%s/oldest.ddl", mp->mnt_point);
 
-  if (!mp->mnt_point) {
-    LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
-    return;
-  }
-  LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
-
-  // *.ddl = DataDiscLog file, binary list of numbers
-  // delete oldest log
-  rc = fs_unlink(oldest_fname);
-  if (rc < 0) {
-    LOG_INF("'oldest.ddl' not found or read-only: %d\n", rc);
-  }
-
-  // rename old log to oldest log
-  rc = fs_rename(latest_fname, oldest_fname);
-  if (rc < 0) {
-    LOG_INF("'latest.ddl' not found or read-only: %d\n", rc);
-  }
-
-  // create new log
-  fs_file_t_init(&file);
-  rc = fs_open(&file, latest_fname, FS_O_CREATE | FS_O_RDWR);
-  if (rc < 0) {
-    LOG_ERR("FAIL: open %s: %d\n", log_strdup(latest_fname), rc);
-    goto out;
-  }
-
-  snprintf(buffer, 5, "DDL\n");
-
-  rc = fs_write(&file, buffer, strlen(buffer));
-  if (rc < 0) {
-    LOG_ERR("FAIL: write %s: %d\n", log_strdup(buffer), rc);
-    goto out;
-  }
-
-  rc = fs_sync(&file);
-  if (rc < 0) {
-    LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
-    goto out;
-  }
-
   while (1) {
 
-    k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
+    log_start_time = k_uptime_get_32();
+  
+    if (!mp->mnt_point) {
+      LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
+      return;
+    }
+    LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
 
-    memcpy(buffer, &data_item.length, 1);
-    memcpy(buffer+1, &data_item.id, 1);
-    memcpy(buffer+2, &data_item.timestamp, sizeof(data_item.timestamp));
-    memcpy(buffer+2+sizeof(data_item.timestamp), &data_item.data_x, data_item.length - 6);
-
-    rc = fs_write(&file, buffer, data_item.length);
+    // *.ddl = DataDiscLog file, binary list of numbers
+    // delete oldest log
+    rc = fs_unlink(oldest_fname);
     if (rc < 0) {
-      LOG_ERR("FAIL: write %s: %d\n", log_strdup(latest_fname), rc);
+      LOG_INF("'oldest.ddl' not found or read-only: %d\n", rc);
+    }
+
+    // rename old log to oldest log
+    rc = fs_rename(latest_fname, oldest_fname);
+    if (rc < 0) {
+      LOG_INF("'latest.ddl' not found or read-only: %d\n", rc);
+    }
+
+    // create new log
+    fs_file_t_init(&file);
+    rc = fs_open(&file, latest_fname, FS_O_CREATE | FS_O_RDWR);
+    if (rc < 0) {
+      LOG_ERR("FAIL: open %s: %d\n", log_strdup(latest_fname), rc);
       goto out;
     }
-    data_size += data_item.length;
 
-    if (data_size >= 4096) {
-      rc = fs_sync(&file);
+    snprintf(buffer, 5, "DDL\n");
+
+    rc = fs_write(&file, buffer, strlen(buffer));
+    if (rc < 0) {
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(buffer), rc);
+      goto out;
+    }
+
+    rc = fs_sync(&file);
+    if (rc < 0) {
+      LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+      goto out;
+    }
+
+    while (1) {
+
+      k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
+
+      memcpy(buffer, &data_item.length, 1);
+      memcpy(buffer+1, &data_item.id, 1);
+      memcpy(buffer+2, &data_item.timestamp, sizeof(data_item.timestamp));
+      memcpy(buffer+2+sizeof(data_item.timestamp), &data_item.data_x, data_item.length - 6);
+
+      rc = fs_write(&file, buffer, data_item.length);
       if (rc < 0) {
-        LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+        LOG_ERR("FAIL: write %s: %d\n", log_strdup(latest_fname), rc);
         goto out;
       }
-      data_size = 0;
+      data_size += data_item.length;
+
+      if (data_size >= 4096) {
+        rc = fs_sync(&file);
+        if (rc < 0) {
+          LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+          goto out;
+        }
+        data_size = 0;
+      }
+
+      if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
+        goto out;
+      }
+
+      if (k_uptime_get_32() - log_start_time > 60000) {
+        datadisc_state = IDLE;
+      }
     }
 
-    if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
-      goto out;
-    }
+  out:
+    datadisc_state = IDLE;
 
-    if (k_uptime_get_32() - log_start_time > 20000) {
-      datadisc_state = IDLE;
-    }
+    snprintf(buffer, 5, "EOF\n");
+
+    rc = fs_write(&file, buffer, strlen(buffer));
+
+    rc = fs_close(&file);
+    LOG_INF("%s close: %d\n", log_strdup(latest_fname), rc);
+
+    k_msgq_purge(&accel_msgq);
+    k_msgq_purge(&datalog_msgq);
+
+    k_thread_suspend(k_current_get());
   }
-
-out:
-  datadisc_state = IDLE;
-
-  snprintf(buffer, 5, "EOF\n");
-
-  rc = fs_write(&file, buffer, strlen(buffer));
-
-  rc = fs_close(&file);
-  LOG_INF("%s close: %d\n", log_strdup(latest_fname), rc);
-
-  k_msgq_purge(&accel_msgq);
-  k_msgq_purge(&datalog_msgq);
-
-  return;
 }
 
 //K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
@@ -1347,7 +1351,7 @@ void main(void) {
               NULL, NULL, NULL,
               PRIORITY + 2, 0, K_NO_WAIT);
         } else {
-          k_thread_start(spi_flash_tid);
+          k_thread_resume(spi_flash_tid);
         }
         break;
 
