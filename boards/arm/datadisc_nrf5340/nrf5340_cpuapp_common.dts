@@ -109,10 +109,10 @@
 	compatible = "nordic,nrf-uarte";
 	status = "okay";
 	current-speed = <115200>;
-	tx-pin = <20>;
-	rx-pin = <22>;
-	rts-pin = <19>;
-	cts-pin = <21>;
+	tx-pin = <19>;
+	rx-pin = <20>;
+	rts-pin = <21>;
+	cts-pin = <22>;
 };
 
 &uart1 {

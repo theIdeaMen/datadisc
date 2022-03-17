@@ -36,14 +36,14 @@
 
 //#include <settings/settings.h>
 
-//#include <bluetooth/bluetooth.h>
-//#include <bluetooth/conn.h>
-//#include <bluetooth/gatt.h>
-//#include <bluetooth/hci.h>
-//#include <bluetooth/services/bas.h>
-//#include <bluetooth/uuid.h>
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/conn.h>
+#include <bluetooth/gatt.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/services/bas.h>
+#include <bluetooth/uuid.h>
 
-//#include "battery.h"
+#include "battery.h"
 #include "kx134.h"
 #include "bm1422.h"
 
@@ -114,8 +114,8 @@ struct Comp_Data {
 
 /** A discharge curve specific to the power source. */
 // TODO measure DataDisc battery curve
-//static const struct battery_level_point levels[] = {
-//#if DT_NODE_HAS_PROP(DT_INST(0, voltage_divider), io_channels)
+static const struct battery_level_point levels[] = {
+#if DT_NODE_HAS_PROP(DT_INST(0, voltage_divider), io_channels)
     /* "Curve" here eyeballed from captured data for the [Adafruit
 	 * 3.7v 2000 mAh](https://www.adafruit.com/product/2011) LIPO
 	 * under full load that started with a charge of 3.96 V and
@@ -128,15 +128,15 @@ struct Comp_Data {
 	 * and 3.1 V.
 	 */
 
-//    {10000, 3950},
-//    {625, 3550},
-//    {0, 3100},
-//#else
-//    /* Linear from maximum voltage to minimum voltage. */
-//    {10000, 3600},
-//    {0, 1700},
-//#endif
-//};
+    {10000, 3950},
+    {625, 3550},
+    {0, 3100},
+#else
+    /* Linear from maximum voltage to minimum voltage. */
+    {10000, 3600},
+    {0, 1700},
+#endif
+};
 
 
 unsigned int soc_percent = 0;
@@ -158,36 +158,37 @@ unsigned int soc_percent = 0;
 *   Bluetooth Functions
 *
 ****************************************************************/
-//#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
-//#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
+#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
-//// Set Advertisement data.
-//static const struct bt_data ad[] = {
-//    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-//};
+// Set Advertisement data.
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+};
 
-//// Set Scan Response data
-//static const struct bt_data sd[] = {
-//    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-//};
+// Set Scan Response data
+static const struct bt_data sd[] = {
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
 
-//static void bt_ready(void) {
-//  int err;
+static void bt_ready(void) {
+  int err;
 
-//  LOG_INF("Bluetooth initialized\n");
+  LOG_INF("Bluetooth initialized\n");
 
-//  if (IS_ENABLED(CONFIG_SETTINGS)) {
-//    settings_load();
-//  }
+  if (IS_ENABLED(CONFIG_SETTINGS)) {
+    settings_load();
+  }
 
-//  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
-//  if (err) {
-//    LOG_ERR("Advertising failed to start (err %d)\n", err);
-//    return;
-//  }
+  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+  if (err) {
+    LOG_ERR("Advertising failed to start (err %d)\n", err);
+    return;
+  }
 
-//  LOG_INF("Advertising successfully started\n");
-//}
+  LOG_INF("Advertising successfully started\n");
+}
+
 
 /***************************************************************
 *   Utility Functions
@@ -407,6 +408,7 @@ static void setup_disk(void) {
   return;
 }
 
+
 /***************************************************************
 *   Threads
 *
@@ -419,44 +421,44 @@ K_CONDVAR_DEFINE(init_cond);
 /********************************************
  * Battery check
  ********************************************/
-//extern void batt_check_thread(void) {
+extern void batt_check_thread(void) {
 
-//  int off_time; // turn off divider to save power (ms)
+  int off_time; // turn off divider to save power (ms)
 
-//  while (1) {
-//    switch (datadisc_state) {
-//    case LOG:
-//      off_time = 700;
-//      break;
+  while (1) {
+    switch (datadisc_state) {
+    case LOG:
+      off_time = 700;
+      break;
 
-//    default: // TODO: decide on times for other states
-//      off_time = 2700;
-//      break;
-//    }
+    default: // TODO: decide on times for other states
+      off_time = 2700;
+      break;
+    }
 
-//    battery_measure_enable(true);
+    battery_measure_enable(true);
 
-//    k_msleep(300);
-//    int batt_mV = battery_sample();
+    k_msleep(300);
+    int batt_mV = battery_sample();
 
-//    battery_measure_enable(false);
+    battery_measure_enable(false);
 
-//    if (batt_mV < 0) {
-//      LOG_ERR("Failed to read battery voltage: %d\n", batt_mV);
-//    }
+    if (batt_mV < 0) {
+      LOG_ERR("Failed to read battery voltage: %d\n", batt_mV);
+    }
 
-//    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
+    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
 
-//    LOG_INF("[%s]: %d mV; %u pptt\n", log_strdup(now_str()), batt_mV, batt_pptt);
+    LOG_DBG("[%s]: %d mV; %u pptt\n", log_strdup(now_str()), batt_mV, batt_pptt);
 
-//    soc_percent = batt_pptt / 100;
+    soc_percent = batt_pptt / 100;
 
-//    k_msleep(off_time);
-//  }
-//}
+    k_msleep(off_time);
+  }
+}
 
-//K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -1292,6 +1294,16 @@ void main(void) {
 
   LOG_INF("Starting DataDisc v2\n");
 
+  // Initialize the Bluetooth Subsystem
+  err = bt_enable(NULL);
+  if (err) {
+    LOG_ERR("Bluetooth init failed (err %d)\n", err);
+    return;
+  }
+
+  bt_ready();
+
+  // Initialize USB and mass storage
   setup_disk();
 
   k_msleep(2);
@@ -1304,33 +1316,24 @@ void main(void) {
 
   LOG_INF("USB mass storage setup complete.\n");
 
+  //dev = device_get_binding("GPIO_0");
+
+  err = gpio_pin_configure(device_get_binding("GPIO_0"), 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+  if (err < 0) {
+    return;
+  }
+
   datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
   k_mutex_unlock(&init_mut);
-
-  // Initialize the Bluetooth Subsystem
-  //err = bt_enable(NULL);
-  //if (err) {
-  //  LOG_ERR("Bluetooth init failed (err %d)\n", err);
-  //  return;
-  //}
-
-  //bt_ready();
-
-  //dev = device_get_binding("GPIO_0");
-
-  //err = gpio_pin_configure(dev, 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
-  //if (err < 0) {
-  //        return;
-  //}
 
 
   // Main loop
   while (1) {
 
     /* Battery level */
-    //bt_bas_set_battery_level(soc_percent);
+    bt_bas_set_battery_level(soc_percent);
     
     /* State Changed */
     if (datadisc_state != prev_state) {
