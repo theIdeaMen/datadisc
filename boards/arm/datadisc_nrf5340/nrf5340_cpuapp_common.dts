@@ -30,6 +30,14 @@
 		};
 	};
 	
+	gpio_fwd: nrf-gpio-forwarder {
+		compatible = "nordic,nrf-gpio-forwarder";
+		status = "okay";
+		uart {
+			gpios = <&gpio1 1 0>, <&gpio1 0 0>, <&gpio0 11 0>, <&gpio0 10 0>;
+		};
+	};
+	
 	/* These aliases are provided for compatibility with samples */
 	aliases {
 		led0 = &led0;
@@ -109,10 +117,12 @@
 	compatible = "nordic,nrf-uarte";
 	status = "okay";
 	current-speed = <115200>;
-	tx-pin = <19>;
-	rx-pin = <20>;
-	rts-pin = <21>;
-	cts-pin = <22>;
+	tx-pin = <20>;
+	rx-pin = <22>;
+	rx-pull-up;
+	rts-pin = <19>;
+	cts-pin = <21>;
+	cts-pull-up;
 };
 
 &uart1 {
