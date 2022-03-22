@@ -34,14 +34,13 @@
 #include <drivers/sensor.h>
 #include <drivers/uart.h>
 
-//#include <settings/settings.h>
-
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/conn.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/hci.h>
-#include <bluetooth/services/bas.h>
 #include <bluetooth/uuid.h>
+#include <bluetooth/services/bas.h>
+#include <bluetooth/services/ots.h>
 
 #include "battery.h"
 #include "kx134.h"
@@ -139,9 +138,6 @@ static const struct battery_level_point levels[] = {
 };
 
 
-unsigned int soc_percent = 0;
-
-
 /* Thread things */
 /* size of stack area used by most threads */
 #define STACKSIZE 2048
@@ -161,26 +157,296 @@ unsigned int soc_percent = 0;
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
+#define OBJ_POOL_SIZE CONFIG_BT_OTS_MAX_OBJ_CNT
+#define OBJ_MAX_SIZE  100
+
 // Set Advertisement data.
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
 // Set Scan Response data
 static const struct bt_data sd[] = {
+    BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_OTS_VAL)),
     BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
-static void bt_ready(void) {
+static struct {
+  uint8_t data[OBJ_MAX_SIZE];
+  char name[CONFIG_BT_OTS_OBJ_MAX_NAME_LEN + 1];
+} objects[OBJ_POOL_SIZE];
+static uint32_t obj_cnt;
+
+struct object_creation_data {
+  struct bt_ots_obj_size size;
+  char *name;
+  uint32_t props;
+};
+
+static struct object_creation_data *object_being_created;
+
+static void connected(struct bt_conn *conn, uint8_t err) {
+  if (err) {
+    LOG_ERR("Connection failed (err %u)\n", err);
+    return;
+  }
+
+  LOG_INF("Connected\n");
+}
+
+static void disconnected(struct bt_conn *conn, uint8_t reason) {
+  LOG_INF("Disconnected (reason %u)\n", reason);
+}
+
+BT_CONN_CB_DEFINE(conn_callbacks) = {
+    .connected = connected,
+    .disconnected = disconnected,
+};
+
+static int ots_obj_created(struct bt_ots *ots, struct bt_conn *conn, uint64_t id,
+                            const struct bt_ots_obj_add_param *add_param,
+                            struct bt_ots_obj_created_desc *created_desc) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint64_t index;
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  if (obj_cnt >= ARRAY_SIZE(objects)) {
+    printk("No item from Object pool is available for Object "
+           "with %s ID\n",
+        id_str);
+    return -ENOMEM;
+  }
+
+  if (add_param->size > OBJ_MAX_SIZE) {
+    printk("Object pool item is too small for Object with %s ID\n",
+        id_str);
+    return -ENOMEM;
+  }
+
+  if (object_being_created) {
+    created_desc->name = object_being_created->name;
+    created_desc->size = object_being_created->size;
+    created_desc->props = object_being_created->props;
+  } else {
+    index = id - BT_OTS_OBJ_ID_MIN;
+    objects[index].name[0] = '\0';
+
+    created_desc->name = objects[index].name;
+    created_desc->size.alloc = OBJ_MAX_SIZE;
+    BT_OTS_OBJ_SET_PROP_READ(created_desc->props);
+    BT_OTS_OBJ_SET_PROP_WRITE(created_desc->props);
+    BT_OTS_OBJ_SET_PROP_PATCH(created_desc->props);
+    BT_OTS_OBJ_SET_PROP_DELETE(created_desc->props);
+  }
+
+  printk("Object with %s ID has been created\n", id_str);
+  obj_cnt++;
+
+  return 0;
+}
+
+static int ots_obj_deleted(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  printk("Object with %s ID has been deleted\n", id_str);
+
+  obj_cnt--;
+
+  return 0;
+}
+
+static void ots_obj_selected(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  printk("Object with %s ID has been selected\n", id_str);
+}
+
+static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id, void **data, size_t len,
+    off_t offset) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint32_t obj_index = (id % ARRAY_SIZE(objects));
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  if (!data) {
+    printk("Object with %s ID has been successfully read\n",
+        id_str);
+
+    return 0;
+  }
+
+  *data = &objects[obj_index].data[offset];
+
+  /* Send even-indexed objects in 20 byte packets
+   * to demonstrate fragmented transmission.
+   */
+  if ((obj_index % 2) == 0) {
+    len = (len < 20) ? len : 20;
+  }
+
+  printk("Object with %s ID is being read\n"
+         "Offset = %lu, Length = %zu\n",
+      id_str, (long)offset, len);
+
+  return len;
+}
+
+static ssize_t ots_obj_write(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id, const void *data, size_t len,
+    off_t offset, size_t rem) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint32_t obj_index = (id % ARRAY_SIZE(objects));
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  printk("Object with %s ID is being written\n"
+         "Offset = %lu, Length = %zu, Remaining= %zu\n",
+      id_str, (long)offset, len, rem);
+
+  (void)memcpy(&objects[obj_index].data[offset], data, len);
+
+  return len;
+}
+
+void ots_obj_name_written(struct bt_ots *ots, struct bt_conn *conn, uint64_t id, const char *name) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  printk("Name for object with %s ID has been written\n", id_str);
+}
+
+static struct bt_ots_cb ots_callbacks = {
+    .obj_created = ots_obj_created,
+    .obj_deleted = ots_obj_deleted,
+    .obj_selected = ots_obj_selected,
+    .obj_read = ots_obj_read,
+    .obj_write = ots_obj_write,
+    .obj_name_written = ots_obj_name_written,
+};
+
+static int ots_init(void) {
   int err;
+  struct bt_ots *ots;
+  struct object_creation_data obj_data;
+  struct bt_ots_init ots_init;
+  struct bt_ots_obj_add_param param;
+  const char *const first_object_name = "first_object.txt";
+  const char *const second_object_name = "second_object.gif";
+  uint32_t cur_size;
+  uint32_t alloc_size;
+
+  ots = bt_ots_free_instance_get();
+  if (!ots) {
+    printk("Failed to retrieve OTS instance\n");
+    return -ENOMEM;
+  }
+
+  /* Configure OTS initialization. */
+  (void)memset(&ots_init, 0, sizeof(ots_init));
+  BT_OTS_OACP_SET_FEAT_READ(ots_init.features.oacp);
+  BT_OTS_OACP_SET_FEAT_WRITE(ots_init.features.oacp);
+  BT_OTS_OACP_SET_FEAT_CREATE(ots_init.features.oacp);
+  BT_OTS_OACP_SET_FEAT_DELETE(ots_init.features.oacp);
+  BT_OTS_OACP_SET_FEAT_PATCH(ots_init.features.oacp);
+  BT_OTS_OLCP_SET_FEAT_GO_TO(ots_init.features.olcp);
+  ots_init.cb = &ots_callbacks;
+
+  /* Initialize OTS instance. */
+  err = bt_ots_init(ots, &ots_init);
+  if (err) {
+    printk("Failed to init OTS (err:%d)\n", err);
+    return err;
+  }
+
+  /* Prepare first object demo data and add it to the instance. */
+  cur_size = sizeof(objects[0].data) / 2;
+  alloc_size = sizeof(objects[0].data);
+  for (uint32_t i = 0; i < cur_size; i++) {
+    objects[0].data[i] = i + 1;
+  }
+
+  (void)memset(&obj_data, 0, sizeof(obj_data));
+  __ASSERT(strlen(first_object_name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
+      "Object name length is larger than the allowed maximum of %u",
+      CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
+  (void)strcpy(objects[0].name, first_object_name);
+  obj_data.name = objects[0].name;
+  obj_data.size.cur = cur_size;
+  obj_data.size.alloc = alloc_size;
+  BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
+  BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
+  BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
+  object_being_created = &obj_data;
+
+  param.size = alloc_size;
+  param.type.uuid.type = BT_UUID_TYPE_16;
+  param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
+  err = bt_ots_obj_add(ots, &param);
+  object_being_created = NULL;
+  if (err < 0) {
+    printk("Failed to add an object to OTS (err: %d)\n", err);
+    return err;
+  }
+
+  /* Prepare second object demo data and add it to the instance. */
+  cur_size = sizeof(objects[0].data);
+  alloc_size = sizeof(objects[0].data);
+  for (uint32_t i = 0; i < cur_size; i++) {
+    objects[1].data[i] = i * 2;
+  }
+
+  (void)memset(&obj_data, 0, sizeof(obj_data));
+  __ASSERT(strlen(second_object_name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
+      "Object name length is larger than the allowed maximum of %u",
+      CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
+  (void)strcpy(objects[1].name, second_object_name);
+  obj_data.name = objects[1].name;
+  obj_data.size.cur = cur_size;
+  obj_data.size.alloc = alloc_size;
+  BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
+  object_being_created = &obj_data;
+
+  param.size = alloc_size;
+  param.type.uuid.type = BT_UUID_TYPE_16;
+  param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
+  err = bt_ots_obj_add(ots, &param);
+  object_being_created = NULL;
+  if (err < 0) {
+    printk("Failed to add an object to OTS (err: %d)\n", err);
+    return err;
+  }
+
+  return 0;
+}
+
+static void datadisc_bt_init(void) {
+  int err;
+
+  err = bt_enable(NULL);
+  if (err) {
+    LOG_ERR("Bluetooth init failed (err %d)\n", err);
+    return;
+  }
 
   LOG_INF("Bluetooth initialized\n");
 
-  if (IS_ENABLED(CONFIG_SETTINGS)) {
-    settings_load();
+  err = ots_init();
+  if (err) {
+    LOG_ERR("Failed to init OTS (err:%d)\n", err);
+    return;
   }
 
-  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+  err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
     LOG_ERR("Advertising failed to start (err %d)\n", err);
     return;
@@ -194,7 +460,6 @@ static void bt_ready(void) {
 *   Utility Functions
 *
 ****************************************************************/
-
 static inline float magnitude(const datalog_msgq_item_t *item) {
   return sqrtf(item->data_x*item->data_x + item->data_y*item->data_y + item->data_z*item->data_z);
 }
@@ -424,22 +689,30 @@ K_CONDVAR_DEFINE(init_cond);
 extern void batt_check_thread(void) {
 
   int off_time; // turn off divider to save power (ms)
+  unsigned int soc_percent = 0; // State of charge percentage
+  unsigned int prev_soc_percent = 0;
+  unsigned int batt_pptt;
+  int batt_mV;
 
   while (1) {
     switch (datadisc_state) {
     case LOG:
-      off_time = 700;
+      off_time = 1700;
+      break;
+
+    case IDLE:
+      off_time = 4700;
       break;
 
     default: // TODO: decide on times for other states
-      off_time = 2700;
+      off_time = 9700;
       break;
     }
 
     battery_measure_enable(true);
 
-    k_msleep(300);
-    int batt_mV = battery_sample();
+    k_msleep(300); // Wait for measurment to settle
+    batt_mV = battery_sample();
 
     battery_measure_enable(false);
 
@@ -447,11 +720,17 @@ extern void batt_check_thread(void) {
       LOG_ERR("Failed to read battery voltage: %d\n", batt_mV);
     }
 
-    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
+    batt_pptt = battery_level_pptt(batt_mV, levels);
 
     LOG_DBG("[%s]: %d mV; %u pptt\n", log_strdup(now_str()), batt_mV, batt_pptt);
 
     soc_percent = batt_pptt / 100;
+
+    if (soc_percent != prev_soc_percent) {
+      /* Send battery level over BLE */
+      bt_bas_set_battery_level(soc_percent);
+      prev_soc_percent = soc_percent;
+    }
 
     k_msleep(off_time);
   }
@@ -1295,13 +1574,7 @@ void main(void) {
   LOG_INF("Starting DataDisc v2\n");
 
   // Initialize the Bluetooth Subsystem
-  err = bt_enable(NULL);
-  if (err) {
-    LOG_ERR("Bluetooth init failed (err %d)\n", err);
-    return;
-  }
-
-  bt_ready();
+  datadisc_bt_init();
 
   // Initialize USB and mass storage
   setup_disk();
@@ -1331,9 +1604,6 @@ void main(void) {
 
   // Main loop
   while (1) {
-
-    /* Battery level */
-    bt_bas_set_battery_level(soc_percent);
     
     /* State Changed */
     if (datadisc_state != prev_state) {
