@@ -186,6 +186,9 @@ struct object_creation_data {
 
 static struct object_creation_data *object_being_created;
 
+static struct bt_ots *ots_global;
+
+
 static void connected(struct bt_conn *conn, uint8_t err) {
   if (err) {
     LOG_ERR("Connection failed (err %u)\n", err);
@@ -213,15 +216,14 @@ static int ots_obj_created(struct bt_ots *ots, struct bt_conn *conn, uint64_t id
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
   if (obj_cnt >= ARRAY_SIZE(objects)) {
-    printk("No item from Object pool is available for Object "
-           "with %s ID\n",
-        id_str);
+    LOG_ERR("No item from Object pool is available for Object "
+           "with %s ID\n", log_strdup(id_str));
     return -ENOMEM;
   }
 
   if (add_param->size > OBJ_MAX_SIZE) {
-    printk("Object pool item is too small for Object with %s ID\n",
-        id_str);
+    LOG_ERR("Object pool item is too small for Object with %s ID\n",
+        log_strdup(id_str));
     return -ENOMEM;
   }
 
@@ -241,7 +243,7 @@ static int ots_obj_created(struct bt_ots *ots, struct bt_conn *conn, uint64_t id
     BT_OTS_OBJ_SET_PROP_DELETE(created_desc->props);
   }
 
-  printk("Object with %s ID has been created\n", id_str);
+  LOG_INF("Object with %s ID has been created\n", log_strdup(id_str));
   obj_cnt++;
 
   return 0;
@@ -253,7 +255,7 @@ static int ots_obj_deleted(struct bt_ots *ots, struct bt_conn *conn,
 
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
-  printk("Object with %s ID has been deleted\n", id_str);
+  LOG_INF("Object with %s ID has been deleted\n", log_strdup(id_str));
 
   obj_cnt--;
 
@@ -266,7 +268,7 @@ static void ots_obj_selected(struct bt_ots *ots, struct bt_conn *conn,
 
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
-  printk("Object with %s ID has been selected\n", id_str);
+  LOG_INF("Object with %s ID has been selected\n", log_strdup(id_str));
 }
 
 static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
@@ -278,8 +280,8 @@ static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
   if (!data) {
-    printk("Object with %s ID has been successfully read\n",
-        id_str);
+    LOG_INF("Object with %s ID has been successfully read\n",
+        log_strdup(id_str));
 
     return 0;
   }
@@ -293,9 +295,9 @@ static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
     len = (len < 20) ? len : 20;
   }
 
-  printk("Object with %s ID is being read\n"
+  LOG_DBG("Object with %s ID is being read\n"
          "Offset = %lu, Length = %zu\n",
-      id_str, (long)offset, len);
+      log_strdup(id_str), (long)offset, len);
 
   return len;
 }
@@ -308,9 +310,9 @@ static ssize_t ots_obj_write(struct bt_ots *ots, struct bt_conn *conn,
 
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
-  printk("Object with %s ID is being written\n"
+  LOG_DBG("Object with %s ID is being written\n"
          "Offset = %lu, Length = %zu, Remaining= %zu\n",
-      id_str, (long)offset, len, rem);
+      log_strdup(id_str), (long)offset, len, rem);
 
   (void)memcpy(&objects[obj_index].data[offset], data, len);
 
@@ -322,7 +324,7 @@ void ots_obj_name_written(struct bt_ots *ots, struct bt_conn *conn, uint64_t id,
 
   bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
-  printk("Name for object with %s ID has been written\n", id_str);
+  LOG_INF("Name for object with %s ID has been written\n", log_strdup(id_str));
 }
 
 static struct bt_ots_cb ots_callbacks = {
@@ -334,20 +336,14 @@ static struct bt_ots_cb ots_callbacks = {
     .obj_name_written = ots_obj_name_written,
 };
 
-static int ots_init(void) {
+static int ots_init(struct bt_ots *i_ots) {
   int err;
-  struct bt_ots *ots;
-  struct object_creation_data obj_data;
+  struct bt_ots *ots = ots_global;
   struct bt_ots_init ots_init;
-  struct bt_ots_obj_add_param param;
-  const char *const first_object_name = "first_object.txt";
-  const char *const second_object_name = "second_object.gif";
-  uint32_t cur_size;
-  uint32_t alloc_size;
 
   ots = bt_ots_free_instance_get();
   if (!ots) {
-    printk("Failed to retrieve OTS instance\n");
+    LOG_ERR("Failed to retrieve OTS instance\n");
     return -ENOMEM;
   }
 
@@ -364,72 +360,14 @@ static int ots_init(void) {
   /* Initialize OTS instance. */
   err = bt_ots_init(ots, &ots_init);
   if (err) {
-    printk("Failed to init OTS (err:%d)\n", err);
-    return err;
-  }
-
-  /* Prepare first object demo data and add it to the instance. */
-  cur_size = sizeof(objects[0].data) / 2;
-  alloc_size = sizeof(objects[0].data);
-  for (uint32_t i = 0; i < cur_size; i++) {
-    objects[0].data[i] = i + 1;
-  }
-
-  (void)memset(&obj_data, 0, sizeof(obj_data));
-  __ASSERT(strlen(first_object_name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
-      "Object name length is larger than the allowed maximum of %u",
-      CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
-  (void)strcpy(objects[0].name, first_object_name);
-  obj_data.name = objects[0].name;
-  obj_data.size.cur = cur_size;
-  obj_data.size.alloc = alloc_size;
-  BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
-  BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
-  BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
-  object_being_created = &obj_data;
-
-  param.size = alloc_size;
-  param.type.uuid.type = BT_UUID_TYPE_16;
-  param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
-  err = bt_ots_obj_add(ots, &param);
-  object_being_created = NULL;
-  if (err < 0) {
-    printk("Failed to add an object to OTS (err: %d)\n", err);
-    return err;
-  }
-
-  /* Prepare second object demo data and add it to the instance. */
-  cur_size = sizeof(objects[0].data);
-  alloc_size = sizeof(objects[0].data);
-  for (uint32_t i = 0; i < cur_size; i++) {
-    objects[1].data[i] = i * 2;
-  }
-
-  (void)memset(&obj_data, 0, sizeof(obj_data));
-  __ASSERT(strlen(second_object_name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
-      "Object name length is larger than the allowed maximum of %u",
-      CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
-  (void)strcpy(objects[1].name, second_object_name);
-  obj_data.name = objects[1].name;
-  obj_data.size.cur = cur_size;
-  obj_data.size.alloc = alloc_size;
-  BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
-  object_being_created = &obj_data;
-
-  param.size = alloc_size;
-  param.type.uuid.type = BT_UUID_TYPE_16;
-  param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
-  err = bt_ots_obj_add(ots, &param);
-  object_being_created = NULL;
-  if (err < 0) {
-    printk("Failed to add an object to OTS (err: %d)\n", err);
+    LOG_ERR("Failed to init OTS (err:%d)\n", err);
     return err;
   }
 
   return 0;
 }
 
-static void datadisc_bt_init(void) {
+static void datadisc_bt_init(struct bt_ots *i_ots) {
   int err;
 
   err = bt_enable(NULL);
@@ -440,7 +378,7 @@ static void datadisc_bt_init(void) {
 
   LOG_INF("Bluetooth initialized\n");
 
-  err = ots_init();
+  err = ots_init(i_ots);
   if (err) {
     LOG_ERR("Failed to init OTS (err:%d)\n", err);
     return;
@@ -673,6 +611,83 @@ static void setup_disk(void) {
   return;
 }
 
+static void register_files_with_bt_ots(struct bt_ots *i_ots) {
+
+  int err;
+
+  struct fs_mount_t *mp = &fs_mnt;
+  struct fs_dir_t dir;
+  unsigned int id = (uintptr_t)mp->storage_dev;
+
+  struct bt_ots *ots = i_ots;
+  struct object_creation_data obj_data;
+  struct bt_ots_obj_add_param param;
+  uint32_t cur_size;
+  uint32_t alloc_size;
+
+  if (!mp->mnt_point) {
+    LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
+    return;
+  }
+  LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
+
+  err = fs_opendir(&dir, mp->mnt_point);
+  if (err < 0) {
+    LOG_ERR("Failed to open directory");
+    return;
+  }
+  LOG_INF("%s opendir: %d\n", log_strdup(mp->mnt_point), err);
+
+  while (err >= 0) {
+    struct fs_dirent ent = {0};
+
+    err = fs_readdir(&dir, &ent);
+    if (err < 0) {
+      LOG_ERR("Failed to read directory entries");
+      break;
+    }
+    if (ent.name[0] == 0) {
+      LOG_INF("End of files\n");
+      break;
+    }
+    if (ent.type == FS_DIR_ENTRY_FILE) {
+      LOG_INF("  %u %s\n", ent.size, log_strdup(ent.name));
+
+      /* Prepare object data and add it to the instance. */
+      cur_size = sizeof(objects[0].data) / 2;
+      alloc_size = sizeof(objects[0].data);
+      for (uint32_t i = 0; i < cur_size; i++) {
+        objects[0].data[i] = i + 1;
+      }
+
+      (void)memset(&obj_data, 0, sizeof(obj_data));
+      __ASSERT(strlen(ent.name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
+          "Object name length is larger than the allowed maximum of %u",
+          CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
+      (void)strcpy(objects[0].name, ent.name);
+      obj_data.name = objects[0].name;
+      obj_data.size.cur = cur_size;
+      obj_data.size.alloc = alloc_size;
+      BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
+      BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
+      BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
+      object_being_created = &obj_data;
+
+      param.size = alloc_size;
+      param.type.uuid.type = BT_UUID_TYPE_16;
+      param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
+      err = bt_ots_obj_add(ots, &param);
+      object_being_created = NULL;
+      if (err < 0) {
+        LOG_ERR("Failed to add an object to OTS (err: %d)\n", err);
+        return;
+      }
+    }
+  }
+  (void)fs_closedir(&dir);
+
+  return;
+}
 
 /***************************************************************
 *   Threads
@@ -1451,6 +1466,8 @@ extern void spi_flash_thread(void) {
     k_msgq_purge(&accel_msgq);
     k_msgq_purge(&datalog_msgq);
 
+    register_files_with_bt_ots();
+
     k_thread_suspend(k_current_get());
   }
 }
@@ -1595,6 +1612,8 @@ void main(void) {
   if (err < 0) {
     return;
   }
+
+  register_files_with_bt_ots();
 
   datadisc_state = IDLE;
 
