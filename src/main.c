@@ -176,6 +176,7 @@ static struct {
   uint8_t data[OBJ_MAX_SIZE];
   char name[CONFIG_BT_OTS_OBJ_MAX_NAME_LEN + 1];
 } objects[OBJ_POOL_SIZE];
+
 static uint32_t obj_cnt;
 
 struct object_creation_data {
@@ -238,9 +239,9 @@ static int ots_obj_created(struct bt_ots *ots, struct bt_conn *conn, uint64_t id
     created_desc->name = objects[index].name;
     created_desc->size.alloc = OBJ_MAX_SIZE;
     BT_OTS_OBJ_SET_PROP_READ(created_desc->props);
-    BT_OTS_OBJ_SET_PROP_WRITE(created_desc->props);
-    BT_OTS_OBJ_SET_PROP_PATCH(created_desc->props);
-    BT_OTS_OBJ_SET_PROP_DELETE(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_WRITE(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_PATCH(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_DELETE(created_desc->props);
   }
 
   LOG_INF("Object with %s ID has been created\n", log_strdup(id_str));
@@ -336,12 +337,13 @@ static struct bt_ots_cb ots_callbacks = {
     .obj_name_written = ots_obj_name_written,
 };
 
-static int ots_init(struct bt_ots *i_ots) {
+static int ots_init() {
   int err;
-  struct bt_ots *ots = ots_global;
+  struct bt_ots *ots;
   struct bt_ots_init ots_init;
 
-  ots = bt_ots_free_instance_get();
+  ots_global = bt_ots_free_instance_get();
+  ots = ots_global;
   if (!ots) {
     LOG_ERR("Failed to retrieve OTS instance\n");
     return -ENOMEM;
@@ -350,11 +352,17 @@ static int ots_init(struct bt_ots *i_ots) {
   /* Configure OTS initialization. */
   (void)memset(&ots_init, 0, sizeof(ots_init));
   BT_OTS_OACP_SET_FEAT_READ(ots_init.features.oacp);
-  BT_OTS_OACP_SET_FEAT_WRITE(ots_init.features.oacp);
-  BT_OTS_OACP_SET_FEAT_CREATE(ots_init.features.oacp);
-  BT_OTS_OACP_SET_FEAT_DELETE(ots_init.features.oacp);
-  BT_OTS_OACP_SET_FEAT_PATCH(ots_init.features.oacp);
+  //BT_OTS_OACP_GET_FEAT_READ(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_WRITE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_CREATE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_DELETE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_PATCH(ots_init.features.oacp);
   BT_OTS_OLCP_SET_FEAT_GO_TO(ots_init.features.olcp);
+  //BT_OTS_OLCP_SET_FEAT_ORDER(ots_init.features.olcp);
+  //BT_OTS_OLCP_SET_FEAT_NUM_REQ(ots_init.features.olcp);
+  //BT_OTS_OLCP_GET_FEAT_GO_TO(ots_init.features.olcp);
+  //BT_OTS_OLCP_GET_FEAT_ORDER(ots_init.features.olcp);
+  BT_OTS_OLCP_GET_FEAT_NUM_REQ(ots_init.features.olcp);
   ots_init.cb = &ots_callbacks;
 
   /* Initialize OTS instance. */
@@ -367,7 +375,7 @@ static int ots_init(struct bt_ots *i_ots) {
   return 0;
 }
 
-static void datadisc_bt_init(struct bt_ots *i_ots) {
+static void datadisc_bt_init() {
   int err;
 
   err = bt_enable(NULL);
@@ -378,7 +386,7 @@ static void datadisc_bt_init(struct bt_ots *i_ots) {
 
   LOG_INF("Bluetooth initialized\n");
 
-  err = ots_init(i_ots);
+  err = ots_init();
   if (err) {
     LOG_ERR("Failed to init OTS (err:%d)\n", err);
     return;
@@ -611,7 +619,7 @@ static void setup_disk(void) {
   return;
 }
 
-static void register_files_with_bt_ots(struct bt_ots *i_ots) {
+static void register_files_with_bt_ots() {
 
   int err;
 
@@ -619,7 +627,7 @@ static void register_files_with_bt_ots(struct bt_ots *i_ots) {
   struct fs_dir_t dir;
   unsigned int id = (uintptr_t)mp->storage_dev;
 
-  struct bt_ots *ots = i_ots;
+  struct bt_ots *ots = ots_global;
   struct object_creation_data obj_data;
   struct bt_ots_obj_add_param param;
   uint32_t cur_size;
@@ -630,6 +638,8 @@ static void register_files_with_bt_ots(struct bt_ots *i_ots) {
     return;
   }
   LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
+
+  fs_dir_t_init(&dir);
 
   err = fs_opendir(&dir, mp->mnt_point);
   if (err < 0) {
@@ -669,8 +679,8 @@ static void register_files_with_bt_ots(struct bt_ots *i_ots) {
       obj_data.size.cur = cur_size;
       obj_data.size.alloc = alloc_size;
       BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
-      BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
-      BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
+      //BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
+      //BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
       object_being_created = &obj_data;
 
       param.size = alloc_size;
@@ -1448,7 +1458,7 @@ extern void spi_flash_thread(void) {
         goto out;
       }
 
-      if (k_uptime_get_32() - log_start_time > 60000) {
+      if (k_uptime_get_32() - log_start_time > 30000) {
         datadisc_state = IDLE;
       }
     }
