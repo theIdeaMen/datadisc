@@ -6,7 +6,7 @@
  
 /delete-node/ &storage_partition;
 
-&at25sl321 {
+&mx25u32 {
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;

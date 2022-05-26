@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,18 +7,21 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include <zephyr.h>
 #include <kernel.h>
 #include <device.h>
 #include <errno.h>
+#include <version.h>
 
 #include <SEGGER_RTT.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
-#include <sys/printk.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
+#include <sys/reboot.h>
+#include <shell/shell.h>
 
 #include <ff.h>
 #include <fs/fs.h>
@@ -29,15 +32,15 @@
 #include <drivers/gpio.h>
 #include <drivers/pwm.h>
 #include <drivers/sensor.h>
-
-//#include <settings/settings.h>
+#include <drivers/uart.h>
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/conn.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/hci.h>
-#include <bluetooth/services/bas.h>
 #include <bluetooth/uuid.h>
+#include <bluetooth/services/bas.h>
+#include <bluetooth/services/ots.h>
 
 #include "battery.h"
 #include "kx134.h"
@@ -58,8 +61,16 @@ typedef enum {
   DUMP,
   SLEEP
 } Machine_State;
-Machine_State datadisc_state = INIT;
+volatile Machine_State datadisc_state = INIT;
 
+static const char *const state_strings[] = {
+    [IDLE]  = "IDLE",
+    [INIT]  = "INIT",
+    [LOG]   = "LOG",
+    [ERASE] = "ERASE",
+    [DUMP]  = "DUMP",
+    [SLEEP] = "SLEEP"
+};
 
 /* file system things */
 #define MAX_PATH_LEN 150
@@ -75,6 +86,29 @@ FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 #endif
 
 static struct fs_mount_t fs_mnt;
+
+
+/********************************************
+ * MSGQ buffers
+ ********************************************/
+typedef struct {
+  uint32_t timestamp;
+  float data_x;
+  float data_y;
+  float data_z;
+  uint8_t id;
+  uint8_t length;
+}__attribute__((aligned(4))) datalog_msgq_item_t;
+
+K_MSGQ_DEFINE(accel_msgq, sizeof(datalog_msgq_item_t), 500, 4);
+K_MSGQ_DEFINE(datalog_msgq, sizeof(datalog_msgq_item_t), 5000, 4);
+
+struct Comp_Data {
+  float prev_magn;
+  float now_magn;
+  uint64_t prev_time;
+  uint64_t now_time;
+};
 
 
 /** A discharge curve specific to the power source. */
@@ -103,8 +137,6 @@ static const struct battery_level_point levels[] = {
 #endif
 };
 
-unsigned int soc_percent = 0;
-
 
 /* Thread things */
 /* size of stack area used by most threads */
@@ -122,41 +154,269 @@ unsigned int soc_percent = 0;
 *   Bluetooth Functions
 *
 ****************************************************************/
-//#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
-//#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
+#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
-//// Set Advertisement data.
-//static const struct bt_data ad[] = {
-//    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-//};
+#define OBJ_POOL_SIZE CONFIG_BT_OTS_MAX_OBJ_CNT
+#define OBJ_MAX_SIZE  100
 
-//// Set Scan Response data
-//static const struct bt_data sd[] = {
-//    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-//};
+// Set Advertisement data.
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
 
-//static void bt_ready(void) {
-//  int err;
+// Set Scan Response data
+static const struct bt_data sd[] = {
+    BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_OTS_VAL)),
+    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
 
-//  printk("Bluetooth initialized\n");
+static struct {
+  uint8_t data[OBJ_MAX_SIZE];
+  char name[CONFIG_BT_OTS_OBJ_MAX_NAME_LEN + 1];
+} objects[OBJ_POOL_SIZE];
 
-//  if (IS_ENABLED(CONFIG_SETTINGS)) {
-//    settings_load();
-//  }
+static uint32_t obj_cnt;
 
-//  err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
-//  if (err) {
-//    printk("Advertising failed to start (err %d)\n", err);
-//    return;
-//  }
+struct object_creation_data {
+  struct bt_ots_obj_size size;
+  char *name;
+  uint32_t props;
+};
 
-//  printk("Advertising successfully started\n");
-//}
+static struct object_creation_data *object_being_created;
+
+static struct bt_ots *ots_global;
+
+
+static void connected(struct bt_conn *conn, uint8_t err) {
+  if (err) {
+    LOG_ERR("Connection failed (err %u)\n", err);
+    return;
+  }
+
+  LOG_INF("Connected\n");
+}
+
+static void disconnected(struct bt_conn *conn, uint8_t reason) {
+  LOG_INF("Disconnected (reason %u)\n", reason);
+}
+
+BT_CONN_CB_DEFINE(conn_callbacks) = {
+    .connected = connected,
+    .disconnected = disconnected,
+};
+
+static int ots_obj_created(struct bt_ots *ots, struct bt_conn *conn, uint64_t id,
+                            const struct bt_ots_obj_add_param *add_param,
+                            struct bt_ots_obj_created_desc *created_desc) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint64_t index;
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  if (obj_cnt >= ARRAY_SIZE(objects)) {
+    LOG_ERR("No item from Object pool is available for Object "
+           "with %s ID\n", log_strdup(id_str));
+    return -ENOMEM;
+  }
+
+  if (add_param->size > OBJ_MAX_SIZE) {
+    LOG_ERR("Object pool item is too small for Object with %s ID\n",
+        log_strdup(id_str));
+    return -ENOMEM;
+  }
+
+  if (object_being_created) {
+    created_desc->name = object_being_created->name;
+    created_desc->size = object_being_created->size;
+    created_desc->props = object_being_created->props;
+  } else {
+    index = id - BT_OTS_OBJ_ID_MIN;
+    objects[index].name[0] = '\0';
+
+    created_desc->name = objects[index].name;
+    created_desc->size.alloc = OBJ_MAX_SIZE;
+    BT_OTS_OBJ_SET_PROP_READ(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_WRITE(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_PATCH(created_desc->props);
+    //BT_OTS_OBJ_SET_PROP_DELETE(created_desc->props);
+  }
+
+  LOG_INF("Object with %s ID has been created\n", log_strdup(id_str));
+  obj_cnt++;
+
+  return 0;
+}
+
+static int ots_obj_deleted(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  LOG_INF("Object with %s ID has been deleted\n", log_strdup(id_str));
+
+  obj_cnt--;
+
+  return 0;
+}
+
+static void ots_obj_selected(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  LOG_INF("Object with %s ID has been selected\n", log_strdup(id_str));
+}
+
+static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id, void **data, size_t len,
+    off_t offset) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint32_t obj_index = (id % ARRAY_SIZE(objects));
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  if (!data) {
+    LOG_INF("Object with %s ID has been successfully read\n",
+        log_strdup(id_str));
+
+    return 0;
+  }
+
+  *data = &objects[obj_index].data[offset];
+
+  /* Send even-indexed objects in 20 byte packets
+   * to demonstrate fragmented transmission.
+   */
+  if ((obj_index % 2) == 0) {
+    len = (len < 20) ? len : 20;
+  }
+
+  LOG_DBG("Object with %s ID is being read\n"
+         "Offset = %lu, Length = %zu\n",
+      log_strdup(id_str), (long)offset, len);
+
+  return len;
+}
+
+static ssize_t ots_obj_write(struct bt_ots *ots, struct bt_conn *conn,
+    uint64_t id, const void *data, size_t len,
+    off_t offset, size_t rem) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+  uint32_t obj_index = (id % ARRAY_SIZE(objects));
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  LOG_DBG("Object with %s ID is being written\n"
+         "Offset = %lu, Length = %zu, Remaining= %zu\n",
+      log_strdup(id_str), (long)offset, len, rem);
+
+  (void)memcpy(&objects[obj_index].data[offset], data, len);
+
+  return len;
+}
+
+void ots_obj_name_written(struct bt_ots *ots, struct bt_conn *conn, uint64_t id, const char *name) {
+  char id_str[BT_OTS_OBJ_ID_STR_LEN];
+
+  bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
+
+  LOG_INF("Name for object with %s ID has been written\n", log_strdup(id_str));
+}
+
+static struct bt_ots_cb ots_callbacks = {
+    .obj_created = ots_obj_created,
+    .obj_deleted = ots_obj_deleted,
+    .obj_selected = ots_obj_selected,
+    .obj_read = ots_obj_read,
+    .obj_write = ots_obj_write,
+    .obj_name_written = ots_obj_name_written,
+};
+
+static int ots_init() {
+  int err;
+  struct bt_ots *ots;
+  struct bt_ots_init ots_init;
+
+  ots_global = bt_ots_free_instance_get();
+  ots = ots_global;
+  if (!ots) {
+    LOG_ERR("Failed to retrieve OTS instance\n");
+    return -ENOMEM;
+  }
+
+  /* Configure OTS initialization. */
+  (void)memset(&ots_init, 0, sizeof(ots_init));
+  BT_OTS_OACP_SET_FEAT_READ(ots_init.features.oacp);
+  //BT_OTS_OACP_GET_FEAT_READ(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_WRITE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_CREATE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_DELETE(ots_init.features.oacp);
+  //BT_OTS_OACP_SET_FEAT_PATCH(ots_init.features.oacp);
+  BT_OTS_OLCP_SET_FEAT_GO_TO(ots_init.features.olcp);
+  //BT_OTS_OLCP_SET_FEAT_ORDER(ots_init.features.olcp);
+  //BT_OTS_OLCP_SET_FEAT_NUM_REQ(ots_init.features.olcp);
+  //BT_OTS_OLCP_GET_FEAT_GO_TO(ots_init.features.olcp);
+  //BT_OTS_OLCP_GET_FEAT_ORDER(ots_init.features.olcp);
+  BT_OTS_OLCP_GET_FEAT_NUM_REQ(ots_init.features.olcp);
+  ots_init.cb = &ots_callbacks;
+
+  /* Initialize OTS instance. */
+  err = bt_ots_init(ots, &ots_init);
+  if (err) {
+    LOG_ERR("Failed to init OTS (err:%d)\n", err);
+    return err;
+  }
+
+  return 0;
+}
+
+static void datadisc_bt_init() {
+  int err;
+
+  err = bt_enable(NULL);
+  if (err) {
+    LOG_ERR("Bluetooth init failed (err %d)\n", err);
+    return;
+  }
+
+  LOG_INF("Bluetooth initialized\n");
+
+  err = ots_init();
+  if (err) {
+    LOG_ERR("Failed to init OTS (err:%d)\n", err);
+    return;
+  }
+
+  err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+  if (err) {
+    LOG_ERR("Advertising failed to start (err %d)\n", err);
+    return;
+  }
+
+  LOG_INF("Advertising successfully started\n");
+}
+
 
 /***************************************************************
 *   Utility Functions
 *
 ****************************************************************/
+static inline float magnitude(const datalog_msgq_item_t *item) {
+  return sqrtf(item->data_x*item->data_x + item->data_y*item->data_y + item->data_z*item->data_z);
+}
+
+float running_jerk(struct Comp_Data *data) {
+  float jerk;
+  jerk = abs(data->now_magn - data->prev_magn) / ((float)(data->now_time - data->prev_time)/1000000.0);
+  data->prev_magn = data->now_magn;
+  data->prev_time = data->now_time;
+  return jerk;
+}
 
 static void wait_on_log_flushed(void) {
   while (log_buffered_cnt()) {
@@ -164,15 +424,12 @@ static void wait_on_log_flushed(void) {
   }
 }
 
-uint64_t uptime_get_us(void) {
-
-  return k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC;
-
+uint32_t uptime_get_us(void) {
+  return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
 }
 
-static inline int32_t sensor_value_to_32(const struct sensor_value *val)
-{
-	return val->val1 * 1000000 + val->val2;
+static inline int32_t sensor_value_to_32(const struct sensor_value *val) {
+  return val->val1 * 1000000 + val->val2;
 }
 
 static const char *now_str(void) {
@@ -200,18 +457,18 @@ static int setup_flash(struct fs_mount_t *mnt) {
   unsigned int id;
   const struct flash_area *pfa;
 
-  mnt->storage_dev = (void *)FLASH_AREA_ID(external_flash);
+  mnt->storage_dev = (void *)FLASH_AREA_ID(storage);
   id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
-  printk("Area %u at 0x%x on %s for %u bytes\n",
-      id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
+  LOG_INF("Area %u at 0x%x on %s for %u bytes\n",
+      id, (unsigned int)pfa->fa_off, log_strdup(pfa->fa_dev_name),
       (unsigned int)pfa->fa_size);
 
-  if (rc == 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-    printk("Erasing flash area ... ");
+  if (rc == 0 && (IS_ENABLED(CONFIG_APP_WIPE_STORAGE) || datadisc_state == ERASE)) {
+    LOG_INF("Erasing flash area ... ");
     rc = flash_area_erase(pfa, 0, pfa->fa_size);
-    printk("%d\n", rc);
+    LOG_INF("%d\n", rc);
   }
 
   if (rc < 0) {
@@ -256,6 +513,14 @@ static void setup_disk(void) {
   char fname[MAX_PATH_LEN];
   int rc;
 
+  if (mp->mnt_point != NULL) {
+    rc = fs_unmount(mp);
+    if (rc < 0) {
+      LOG_ERR("Failed to unmount filesystem");
+      return;
+    }
+  }
+
   fs_dir_t_init(&dir);
 
   if (IS_ENABLED(CONFIG_DISK_DRIVER_FLASH)) {
@@ -281,22 +546,22 @@ static void setup_disk(void) {
   /* Allow log messages to flush to avoid interleaved output */
   k_sleep(K_MSEC(50));
 
-  printk("Mount %s: %d\n", fs_mnt.mnt_point, rc);
+  LOG_INF("Mount %s: %d\n", log_strdup(fs_mnt.mnt_point), rc);
 
   rc = fs_statvfs(mp->mnt_point, &sbuf);
   if (rc < 0) {
-    printk("FAIL: statvfs: %d\n", rc);
+    LOG_ERR("FAIL: statvfs: %d\n", rc);
     return;
   }
 
-  printk("%s: bsize = %lu ; frsize = %lu ;"
+  LOG_INF("%s: bsize = %lu ; frsize = %lu ;"
          " blocks = %lu ; bfree = %lu\n",
-      mp->mnt_point,
+      log_strdup(mp->mnt_point),
       sbuf.f_bsize, sbuf.f_frsize,
       sbuf.f_blocks, sbuf.f_bfree);
 
   rc = fs_opendir(&dir, mp->mnt_point);
-  printk("%s opendir: %d\n", mp->mnt_point, rc);
+  LOG_INF("%s opendir: %d\n", log_strdup(mp->mnt_point), rc);
 
   if (rc < 0) {
     LOG_ERR("Failed to open directory");
@@ -311,18 +576,18 @@ static void setup_disk(void) {
       break;
     }
     if (ent.name[0] == 0) {
-      printk("End of files\n");
+      LOG_INF("End of files\n");
       break;
     }
-    printk("  %c %u %s\n",
+    LOG_INF("  %c %u %s\n",
         (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
         ent.size,
-        ent.name);
+        log_strdup(ent.name));
   }
 
   (void)fs_closedir(&dir);
 
-  snprintf(fname, sizeof(fname), "%s/boot_count", mp->mnt_point);
+  snprintf(fname, sizeof(fname), "%s/boot_count", log_strdup(mp->mnt_point));
 
   struct fs_file_t file;
 
@@ -330,7 +595,7 @@ static void setup_disk(void) {
 
   rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
   if (rc < 0) {
-    printk("FAIL: open %s: %d\n", fname, rc);
+    LOG_ERR("FAIL: open %s: %d\n", log_strdup(fname), rc);
     return;
   }
 
@@ -338,18 +603,98 @@ static void setup_disk(void) {
 
   if (rc >= 0) {
     rc = fs_read(&file, &boot_count, sizeof(boot_count));
-    printk("%s read count %u: %d\n", fname, boot_count, rc);
+    LOG_INF("%s read count %u: %d\n", log_strdup(fname), boot_count, rc);
     rc = fs_seek(&file, 0, FS_SEEK_SET);
-    printk("%s seek start: %d\n", fname, rc);
+    LOG_INF("%s seek start: %d\n", log_strdup(fname), rc);
   }
 
   boot_count += 1;
   rc = fs_write(&file, &boot_count, sizeof(boot_count));
-  printk("%s write new boot count %u: %d\n", fname,
+  LOG_INF("%s write new boot count %u: %d\n", log_strdup(fname),
       boot_count, rc);
 
   rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
+  LOG_INF("%s close: %d\n", log_strdup(fname), rc);
+
+  return;
+}
+
+static void register_files_with_bt_ots() {
+
+  int err;
+
+  struct fs_mount_t *mp = &fs_mnt;
+  struct fs_dir_t dir;
+  unsigned int id = (uintptr_t)mp->storage_dev;
+
+  struct bt_ots *ots = ots_global;
+  struct object_creation_data obj_data;
+  struct bt_ots_obj_add_param param;
+  uint32_t cur_size;
+  uint32_t alloc_size;
+
+  if (!mp->mnt_point) {
+    LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
+    return;
+  }
+  LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
+
+  fs_dir_t_init(&dir);
+
+  err = fs_opendir(&dir, mp->mnt_point);
+  if (err < 0) {
+    LOG_ERR("Failed to open directory");
+    return;
+  }
+  LOG_INF("%s opendir: %d\n", log_strdup(mp->mnt_point), err);
+
+  while (err >= 0) {
+    struct fs_dirent ent = {0};
+
+    err = fs_readdir(&dir, &ent);
+    if (err < 0) {
+      LOG_ERR("Failed to read directory entries");
+      break;
+    }
+    if (ent.name[0] == 0) {
+      LOG_INF("End of files\n");
+      break;
+    }
+    if (ent.type == FS_DIR_ENTRY_FILE) {
+      LOG_INF("  %u %s\n", ent.size, log_strdup(ent.name));
+
+      /* Prepare object data and add it to the instance. */
+      cur_size = sizeof(objects[0].data) / 2;
+      alloc_size = sizeof(objects[0].data);
+      for (uint32_t i = 0; i < cur_size; i++) {
+        objects[0].data[i] = i + 1;
+      }
+
+      (void)memset(&obj_data, 0, sizeof(obj_data));
+      __ASSERT(strlen(ent.name) <= CONFIG_BT_OTS_OBJ_MAX_NAME_LEN,
+          "Object name length is larger than the allowed maximum of %u",
+          CONFIG_BT_OTS_OBJ_MAX_NAME_LEN);
+      (void)strcpy(objects[0].name, ent.name);
+      obj_data.name = objects[0].name;
+      obj_data.size.cur = cur_size;
+      obj_data.size.alloc = alloc_size;
+      BT_OTS_OBJ_SET_PROP_READ(obj_data.props);
+      //BT_OTS_OBJ_SET_PROP_WRITE(obj_data.props);
+      //BT_OTS_OBJ_SET_PROP_PATCH(obj_data.props);
+      object_being_created = &obj_data;
+
+      param.size = alloc_size;
+      param.type.uuid.type = BT_UUID_TYPE_16;
+      param.type.uuid_16.val = BT_UUID_OTS_TYPE_UNSPECIFIED_VAL;
+      err = bt_ots_obj_add(ots, &param);
+      object_being_created = NULL;
+      if (err < 0) {
+        LOG_ERR("Failed to add an object to OTS (err: %d)\n", err);
+        return;
+      }
+    }
+  }
+  (void)fs_closedir(&dir);
 
   return;
 }
@@ -366,44 +711,58 @@ K_CONDVAR_DEFINE(init_cond);
 /********************************************
  * Battery check
  ********************************************/
-void batt_check_thread(void) {
+extern void batt_check_thread(void) {
 
   int off_time; // turn off divider to save power (ms)
+  unsigned int soc_percent = 0; // State of charge percentage
+  unsigned int prev_soc_percent = 0;
+  unsigned int batt_pptt;
+  int batt_mV;
 
   while (1) {
     switch (datadisc_state) {
     case LOG:
-      off_time = 700;
+      off_time = 1700;
+      break;
+
+    case IDLE:
+      off_time = 4700;
       break;
 
     default: // TODO: decide on times for other states
-      off_time = 2700;
+      off_time = 9700;
       break;
     }
 
     battery_measure_enable(true);
 
-    k_msleep(300);
-    int batt_mV = battery_sample();
+    k_msleep(300); // Wait for measurment to settle
+    batt_mV = battery_sample();
 
     battery_measure_enable(false);
 
     if (batt_mV < 0) {
-      printk("Failed to read battery voltage: %d\n", batt_mV);
+      LOG_ERR("Failed to read battery voltage: %d\n", batt_mV);
     }
 
-    unsigned int batt_pptt = battery_level_pptt(batt_mV, levels);
+    batt_pptt = battery_level_pptt(batt_mV, levels);
 
-    printk("[%s]: %d mV; %u pptt\n", now_str(), batt_mV, batt_pptt);
+    LOG_DBG("[%s]: %d mV; %u pptt\n", log_strdup(now_str()), batt_mV, batt_pptt);
 
     soc_percent = batt_pptt / 100;
+
+    if (soc_percent != prev_soc_percent) {
+      /* Send battery level over BLE */
+      bt_bas_set_battery_level(soc_percent);
+      prev_soc_percent = soc_percent;
+    }
 
     k_msleep(off_time);
   }
 }
 
-//K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
 /********************************************
@@ -430,89 +789,88 @@ void batt_check_thread(void) {
 #define MIN_PERIOD_USEC (USEC_PER_SEC / 64U)
 #define MAX_PERIOD_USEC USEC_PER_SEC
 
-void led_control_thread(void) {
+#define M_E 2.71828182845904523536
+#define SCALING_CONST (MAX_BRIGHTNESS / (M_E - (1 / M_E)))
+
+extern void led_control_thread(void) {
 
   const struct device *pwm;
   int err;
-  uint16_t level;
+  uint16_t level = 0;
+  uint16_t time_now;
 
   pwm = DEVICE_DT_GET(PWM_CTLR);
   if (pwm) {
-    LOG_INF("Found device %s", PWM_NAME);
+    LOG_INF("Found device %s", log_strdup(PWM_NAME));
   } else {
-    LOG_ERR("Device %s not found", PWM_NAME);
+    LOG_ERR("Device %s not found", log_strdup(PWM_NAME));
     return;
   }
 
   while (1) {
 
     switch (datadisc_state) {
+    case INIT:
+      // Fast breathe
+      level = (exp(sin(10.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+
+      break;
+
     case IDLE:
-      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
-        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
-        if (err < 0) {
-          LOG_ERR("err=%d brightness=%d", err, level);
-          return;
-        }
-        k_msleep(FADE_DELAY);
+      // One dim, slow pulse
+      time_now = (uint16_t)k_uptime_get();
+
+      if (time_now % 5000 < 300) {
+        level = MAX_BRIGHTNESS / 3;
       }
-      k_msleep(1000);
-      for (level = 0; level <= MAX_BRIGHTNESS; level++) {
-        err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * (MAX_BRIGHTNESS - level)) / 100U, PWM_FLAGS);
-        if (err < 0) {
-          LOG_ERR("err=%d brightness=%d", err, (MAX_BRIGHTNESS - level));
-          return;
-        }
-        k_msleep(FADE_DELAY);
+      else {
+        level = 0;
       }
-      k_msleep(1000);
+
       break;
 
     case LOG:
-      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, MAX_BRIGHTNESS, PWM_FLAGS);
-      if (err < 0) {
-        LOG_ERR("err=%d", err);
-        return;
-      }
-      k_msleep(300);
+      // Three fast pulses
+      time_now = (uint16_t)k_uptime_get();
 
-      err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, 0, PWM_FLAGS);
-      if (err < 0) {
-        LOG_ERR("err=%d", err);
-        return;
+      if ((time_now % 200 < 20) ^ (time_now % 300 < 20)) {
+        level = MAX_BRIGHTNESS;
       }
-      k_msleep(300);
+      else {
+        level = 0;
+      }
+      
+      break;
 
+    case ERASE:
+      // Slow breathe
+      level = (exp(sin(3.0*(k_uptime_get()/1000.0))) - (1.0 / M_E)) * SCALING_CONST;
+      
+      break;
+
+    case SLEEP:
+      level = 0;
+      
       break;
 
     default: // TODO: decide on times for other states
+      
+      level = MAX_BRIGHTNESS;
 
       break;
     }
+
+    err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
+    if (err < 0) {
+      LOG_ERR("err=%d", err);
+      return;
+    }
+    k_msleep(10);
   }
 }
 
 K_THREAD_DEFINE(led_control_id, STACKSIZE, led_control_thread,
-    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
-
-
-
-/********************************************
- * MSGQ buffers
- ********************************************/
-struct accel_msgq_item_t {
-  uint8_t id;
-  uint64_t timestamp;
-  struct sensor_value data[3];
-} __packed;
-
-struct datalog_msgq_item_t {
-  size_t length;
-  uint8_t data[50];
-} __packed;
-
-K_MSGQ_DEFINE(accel_msgq, sizeof(struct accel_msgq_item_t), 500, 4);
-K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 4000, 4);
+    NULL, NULL, NULL, PRIORITY, 0, 0);
 
 
 /********************************************
@@ -525,20 +883,24 @@ K_MSGQ_DEFINE(datalog_msgq, sizeof(struct datalog_msgq_item_t), 4000, 4);
 #define ACCEL_ALPHA_ID  0x1A;
 #define ACCEL_BETA_ID   0x2B;
 
-K_SEM_DEFINE(sem_a, 0, 1);
-K_SEM_DEFINE(sem_b, 0, 1);
+K_SEM_DEFINE(sem_accel_alpha_drdy, 0, 1);
+K_SEM_DEFINE(sem_accel_alpha_tap, 0, 1);
+K_SEM_DEFINE(sem_accel_beta_drdy, 0, 1);
+K_SEM_DEFINE(sem_accel_beta_idle, 0, 1);
 
-static void accel_alpha_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+static void accel_alpha_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(trigger);
 
   if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+    LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
-  k_sem_give(&sem_a);
+  k_sem_give(&sem_accel_alpha_drdy);
 }
 
-void accel_alpha_thread(void) {
+extern void accel_alpha_drdy_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -549,66 +911,163 @@ void accel_alpha_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
-  struct sensor_value int_source;
-  struct accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
+  struct sensor_value acc_xyz[3];
+  
+  uint16_t sample_counter = 0;
+  uint8_t sample_mod = 1;
+    
+  float any_jerk = 0;
+
+  struct Comp_Data jerk_help;
+  jerk_help.prev_magn = 0;
+  jerk_help.prev_time = 0;
+
+  uint32_t prev_time = 0;
 
   if (!dev) {
-    printf("Devicetree has no kionix,kx134-1211 node\n");
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
   struct sensor_trigger trig = {
-      .type = KX134_SENSOR_TRIG_ANY,
+      .type = SENSOR_TRIG_DATA_READY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (sensor_trigger_set(dev, &trig, accel_alpha_trigger_handler)) {
-    printf("Could not set trigger\n");
+  if (sensor_trigger_set(dev, &trig, accel_alpha_drdy_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
     return;
   }
 
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
+
   msgq_item.id = ACCEL_ALPHA_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
-    k_sem_take(&sem_a, K_FOREVER);
 
-    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
+    k_sem_take(&sem_accel_alpha_drdy, K_FOREVER);
 
-    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+    if (datadisc_state == LOG) {
+
+      sample_counter += 1;
 
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
+      msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
+
+      jerk_help.now_magn = magnitude(&msgq_item);
+      jerk_help.now_time = msgq_item.timestamp;
+      any_jerk = running_jerk(&jerk_help);
+
+      if (any_jerk > 500) {
+        // reset speed-up timer
+        prev_time = msgq_item.timestamp;
+        sample_mod = 1;
+      }
+
+      if (msgq_item.timestamp - prev_time > 10000) {
+        // Only save every 10th sample now
+        sample_mod = 10;
+      }
 
       /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      if (sample_counter % sample_mod == 0) {
+        while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+          /* message queue is full: purge old data & try again */
+          k_msgq_purge(&accel_msgq);
+        }
       }
     }
   }
 }
 
-//K_THREAD_DEFINE(accel_alpha_id, STACKSIZE, accel_alpha_thread,
-//    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+K_THREAD_DEFINE(accel_alpha_drdy_id, STACKSIZE, accel_alpha_drdy_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-static void accel_beta_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+static void accel_alpha_tap_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
-  if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+  ARG_UNUSED(dev);
+
+  if (trigger->type == SENSOR_TRIG_DOUBLE_TAP) {
+    k_sem_give(&sem_accel_alpha_tap);
     return;
   }
 
-  k_sem_give(&sem_b);
+  LOG_ERR("Unrecognized trigger");
 }
 
+extern void accel_alpha_tap_thread(void) {
 
-void accel_beta_thread(void) {
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev = device_get_binding(ACCEL_ALPHA_DEVICE);
+
+  if (!dev) {
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = SENSOR_TRIG_DOUBLE_TAP,
+      .chan = KX134_SENSOR_CHAN_INT_SOURCE,
+  };
+
+  if (sensor_trigger_set(dev, &trig, accel_alpha_tap_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
+    return;
+  }
+
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->dbtp_handler);
+
+  while (1) {
+    k_sem_take(&sem_accel_alpha_tap, K_FOREVER);
+
+    LOG_INF("Double Tap!\n");
+
+    datadisc_state = LOG;
+    k_msleep(250);
+  }
+}
+
+K_THREAD_DEFINE(accel_alpha_tap_id, STACKSIZE, accel_alpha_tap_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
+
+
+static void accel_beta_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(trigger);
+
+  if (sensor_sample_fetch(dev)) {
+    LOG_ERR("sensor_sample_fetch failed");
+    return;
+  }
+
+  k_sem_give(&sem_accel_beta_drdy);
+}
+
+extern void accel_beta_drdy_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -619,74 +1078,148 @@ void accel_beta_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
-  struct sensor_value int_source;
-  struct accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
+  struct sensor_value acc_xyz[3];
+
+  uint16_t sample_counter = 0;
+  uint8_t sample_mod = 1;
+    
+  float any_jerk = 0;
+
+  struct Comp_Data jerk_help;
+  jerk_help.prev_magn = 0;
+  jerk_help.prev_time = 0;
+
+  uint32_t prev_time = 0;
 
   if (!dev) {
-    printf("Devicetree has no kionix,kx134-1211 node\n");
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
   struct sensor_trigger trig = {
-      .type = KX134_SENSOR_TRIG_ANY,
+      .type = SENSOR_TRIG_DATA_READY,
       .chan = SENSOR_CHAN_ACCEL_XYZ,
   };
 
-  if (sensor_trigger_set(dev, &trig, accel_beta_trigger_handler)) {
-    printf("Could not set trigger\n");
+  if (sensor_trigger_set(dev, &trig, accel_beta_drdy_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
     return;
   }
 
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->drdy_handler);
+
+  msgq_item.id = ACCEL_BETA_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
+
   while (1) {
 
-    k_sem_take(&sem_b, K_FOREVER);
-    //k_sem_take(&sem_b, K_MSEC(50));
+    k_sem_take(&sem_accel_beta_drdy, K_FOREVER);
 
-    sensor_channel_get(dev, KX134_SENSOR_CHAN_INT_SOURCE, &int_source);
+    if (datadisc_state == LOG) {
 
-    if (KX134_INS2_DRDY(int_source.val1) && datadisc_state == LOG) {
+      sample_counter += 1;
 
-      msgq_item.id = ACCEL_BETA_ID;
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, msgq_item.data);
-      
-      /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
+      msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&acc_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&acc_xyz[2]);
+
+      jerk_help.now_magn = magnitude(&msgq_item);
+      jerk_help.now_time = msgq_item.timestamp;
+      any_jerk = running_jerk(&jerk_help);
+
+      if (any_jerk > 500) {
+        // reset speed-up timer
+        prev_time = msgq_item.timestamp;
+        sample_mod = 1;
       }
-    }
 
-    if (KX134_INS2_DTS(int_source.val1)) {
+      if (msgq_item.timestamp - prev_time > 10000) {
+        // Only save every 10th sample now
+        sample_mod = 10;
+      }
 
-      msgq_item.id = 0x00;
-      msgq_item.timestamp = uptime_get_us();
-
-      /* Toggle DataDisc State */
-      //if (datadisc_state == IDLE) {
-      //  datadisc_state = LOG;
-      //} else {
-      //  datadisc_state = IDLE;
-      //}
-
-      printk("[%s] Double Tap!\n", now_str());
-      
       /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      if (sample_counter % sample_mod == 0) {
+        while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+          /* message queue is full: purge old data & try again */
+          k_msgq_purge(&accel_msgq);
+        }
       }
     }
   }
 }
 
-K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
+K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+
+static void accel_beta_idle_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+
+  ARG_UNUSED(dev);
+
+  if (trigger->type == KX134_SENSOR_TRIG_IDLE) {
+    k_sem_give(&sem_accel_beta_idle);
+    return;
+  }
+
+  LOG_ERR("Unrecognized trigger");
+}
+
+extern void accel_beta_idle_thread(void) {
+
+  k_mutex_lock(&init_mut, K_FOREVER);
+
+  while (datadisc_state == INIT) {
+    k_condvar_wait(&init_cond, &init_mut, K_FOREVER);
+  }
+
+  k_mutex_unlock(&init_mut);
+
+  const struct device *dev = device_get_binding(ACCEL_BETA_DEVICE);
+
+  if (!dev) {
+    LOG_ERR("Devicetree has no kionix,kx134-1211 node");
+    return;
+  }
+  if (!device_is_ready(dev)) {
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    return;
+  }
+
+  struct sensor_trigger trig = {
+      .type = KX134_SENSOR_TRIG_IDLE,
+      .chan = KX134_SENSOR_CHAN_INT_SOURCE,
+  };
+
+  if (sensor_trigger_set(dev, &trig, accel_beta_idle_trigger_handler)) {
+    LOG_ERR("Could not set trigger");
+    return;
+  }
+
+  struct kx134_data *drv_data = dev->data;
+  LOG_INF("dev: %p, cb: %p", dev, drv_data->idle_handler);
+
+  while (1) {
+    k_sem_take(&sem_accel_beta_idle, K_FOREVER);
+
+    LOG_INF("Idle detected!\n");
+
+    datadisc_state = IDLE;
+    k_msleep(250);
+  }
+}
+
+K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
+    NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
 /********************************************
@@ -694,7 +1227,7 @@ K_THREAD_DEFINE(accel_beta_id, STACKSIZE, accel_beta_thread,
  ********************************************/
 #define MAGN_DEVICE DT_LABEL(DT_INST(0, rohm_bm1422agmv))
 
-/* Unique IDs to carry into CSV */
+/* Unique IDs to carry into log */
 #define MAGN_ID  0x3C;
 
 K_SEM_DEFINE(magn_sem, 0, 1);
@@ -702,14 +1235,14 @@ K_SEM_DEFINE(magn_sem, 0, 1);
 static void magn_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
   if (sensor_sample_fetch(dev)) {
-    printf("sensor_sample_fetch failed\n");
+    LOG_ERR("sensor_sample_fetch failed");
     return;
   }
 
   k_sem_give(&magn_sem);
 }
 
-void magn_thread(void) {
+extern void magn_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -720,14 +1253,15 @@ void magn_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(MAGN_DEVICE);
-  struct accel_msgq_item_t msgq_item;
+  datalog_msgq_item_t msgq_item;
+  struct sensor_value magn_xyz[3];
 
   if (!dev) {
-    printf("Devicetree has no rohm,bm1422agmv node\n");
+    LOG_ERR("Devicetree has no rohm,bm1422agmv node");
     return;
   }
   if (!device_is_ready(dev)) {
-    printf("Device %s is not ready\n", dev->name);
+    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
     return;
   }
 
@@ -737,20 +1271,25 @@ void magn_thread(void) {
   };
 
   if (sensor_trigger_set(dev, &trig, magn_trigger_handler)) {
-    printf("Could not set trigger\n");
+    LOG_ERR("Could not set trigger");
     return;
   }
+
+  msgq_item.id = MAGN_ID;
+  msgq_item.length = 18; // Number of bytes saved to log
 
   while (1) {
 
     k_sem_take(&magn_sem, K_FOREVER);
 
     if (datadisc_state == LOG) {
-
-      msgq_item.id = MAGN_ID;
+      
       msgq_item.timestamp = uptime_get_us();
 
-      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, msgq_item.data);
+      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
+      msgq_item.data_x = (float)sensor_value_to_double(&magn_xyz[0]);
+      msgq_item.data_y = (float)sensor_value_to_double(&magn_xyz[1]);
+      msgq_item.data_z = (float)sensor_value_to_double(&magn_xyz[2]);
 
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
@@ -768,7 +1307,9 @@ K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
 /********************************************
  * Thread for crunching data during runtime
  ********************************************/
-void runtime_compute_thread(void) {
+uint16_t temp_counter = 0;
+
+extern void runtime_compute_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -778,45 +1319,40 @@ void runtime_compute_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  struct accel_msgq_item_t msgq_item;
-  struct datalog_msgq_item_t data_item;
-  struct datalog_msgq_item_t throw_away_item;
-  int32_t x_value, y_value, z_value;
+  datalog_msgq_item_t msgq_item;
+  datalog_msgq_item_t data_item;
+  datalog_msgq_item_t throw_away_item;
 
   // TODO: Accel averaging, spin rate, etc.
   while (1) {
 
     k_msgq_get(&accel_msgq, &msgq_item, K_FOREVER);
 
+    memcpy(&data_item, &msgq_item, sizeof(datalog_msgq_item_t));
+
     switch (msgq_item.id) {
     case 0x00:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,double tap\n",
-          msgq_item.id, msgq_item.timestamp);
       break;
 
     case 0x1A:
     case 0x2B:
     case 0x3C:
-      x_value = sensor_value_to_32(&msgq_item.data[0]);
-      y_value = sensor_value_to_32(&msgq_item.data[1]);
-      z_value = sensor_value_to_32(&msgq_item.data[2]);
-
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,%d,%d,%d\n",
-          msgq_item.id, msgq_item.timestamp, x_value, y_value, z_value);
       break;
 
     case 0xFF:
     default:
-      data_item.length = snprintf(data_item.data, sizeof(data_item.data), "%02X,%llu,no data\n",
-          msgq_item.id, msgq_item.timestamp);
+      data_item.length = 10;
+      data_item.data_x = 9;
       break;
     }
-    printk("[%llu] %d -\n", msgq_item.timestamp, k_msgq_num_free_get(&datalog_msgq));
+
+    if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
+      temp_counter += 1;
+    }
 
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
       /* message queue is full: purge old data & try again */
-      //k_msgq_purge(&datalog_msgq);
       k_msgq_get(&datalog_msgq, &throw_away_item, K_NO_WAIT);
     }
   }
@@ -830,9 +1366,135 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
 /********************************************
  * Q-SPI FLASH
  ********************************************/
-uint8_t fname[MAX_PATH_LEN];    // Buffer created outside thread to avoid stack overflow
+    // Buffer created outside thread to avoid stack overflow
 
-void spi_flash_thread(void) {
+extern void spi_flash_thread(void) {
+
+  struct fs_mount_t *mp = &fs_mnt;
+  struct fs_file_t file;
+  unsigned int id = (uintptr_t)mp->storage_dev;
+  uint32_t log_start_time;
+  int rc;
+  uint16_t data_size = 0;
+  uint8_t buffer[20];
+  uint8_t latest_fname[20];
+  uint8_t oldest_fname[20];
+  datalog_msgq_item_t data_item;
+
+  snprintf(latest_fname, sizeof(latest_fname), "%s/latest.ddl", mp->mnt_point);
+  snprintf(oldest_fname, sizeof(oldest_fname), "%s/oldest.ddl", mp->mnt_point);
+
+  while (1) {
+
+    log_start_time = k_uptime_get_32();
+  
+    if (!mp->mnt_point) {
+      LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
+      return;
+    }
+    LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
+
+    // *.ddl = DataDiscLog file, binary list of numbers
+    // delete oldest log
+    rc = fs_unlink(oldest_fname);
+    if (rc < 0) {
+      LOG_INF("'oldest.ddl' not found or read-only: %d\n", rc);
+    }
+
+    // rename old log to oldest log
+    rc = fs_rename(latest_fname, oldest_fname);
+    if (rc < 0) {
+      LOG_INF("'latest.ddl' not found or read-only: %d\n", rc);
+    }
+
+    // create new log
+    fs_file_t_init(&file);
+    rc = fs_open(&file, latest_fname, FS_O_CREATE | FS_O_RDWR);
+    if (rc < 0) {
+      LOG_ERR("FAIL: open %s: %d\n", log_strdup(latest_fname), rc);
+      goto out;
+    }
+
+    snprintf(buffer, 5, "DDL\n");
+
+    rc = fs_write(&file, buffer, strlen(buffer));
+    if (rc < 0) {
+      LOG_ERR("FAIL: write %s: %d\n", log_strdup(buffer), rc);
+      goto out;
+    }
+
+    rc = fs_sync(&file);
+    if (rc < 0) {
+      LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+      goto out;
+    }
+
+    while (1) {
+
+      k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
+
+      memcpy(buffer, &data_item.length, 1);
+      memcpy(buffer+1, &data_item.id, 1);
+      memcpy(buffer+2, &data_item.timestamp, sizeof(data_item.timestamp));
+      memcpy(buffer+2+sizeof(data_item.timestamp), &data_item.data_x, data_item.length - 6);
+
+      rc = fs_write(&file, buffer, data_item.length);
+      if (rc < 0) {
+        LOG_ERR("FAIL: write %s: %d\n", log_strdup(latest_fname), rc);
+        goto out;
+      }
+      data_size += data_item.length;
+
+      if (data_size >= 4096) {
+        rc = fs_sync(&file);
+        if (rc < 0) {
+          LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+          goto out;
+        }
+        data_size = 0;
+      }
+
+      if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
+        goto out;
+      }
+
+      if (k_uptime_get_32() - log_start_time > 30000) {
+        datadisc_state = IDLE;
+      }
+    }
+
+  out:
+    datadisc_state = IDLE;
+
+    snprintf(buffer, 5, "EOF\n");
+
+    rc = fs_write(&file, buffer, strlen(buffer));
+
+    rc = fs_close(&file);
+    LOG_INF("%s close: %d\n", log_strdup(latest_fname), rc);
+
+    k_msgq_purge(&accel_msgq);
+    k_msgq_purge(&datalog_msgq);
+
+    register_files_with_bt_ots();
+
+    k_thread_suspend(k_current_get());
+  }
+}
+
+//K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
+//    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_STACK_DEFINE(spi_flash_stack_area, STACKSIZE);
+struct k_thread spi_flash_thread_data;
+k_tid_t spi_flash_tid = NULL;
+
+
+/********************************************
+ * UART Control
+ ********************************************/
+#if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
+
+extern void uart_ctl_thread(void) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -842,105 +1504,85 @@ void spi_flash_thread(void) {
 
   k_mutex_unlock(&init_mut);
 
-  k_thread_system_pool_assign(k_current_get());
+  const struct device *dev;
+  uint32_t dtr = 0;
 
-  //goto out;
-
-  struct fs_mount_t *mp = &fs_mnt;
-  struct fs_file_t file;
-  unsigned int id = (uintptr_t)mp->storage_dev;
-  uint64_t log_start_time;
-  int rc;
-  uint16_t data_size = 0;
-  uint8_t buffer[150];
-  struct datalog_msgq_item_t data_item;
-
-  log_start_time = k_uptime_get();
-
-  if (!mp->mnt_point) {
-    printk("FAIL: mount id %u at %s\n", id, mp->mnt_point);
-    return;
-  }
-  printk("%s mount\n", mp->mnt_point);
-
-  snprintf(fname, sizeof(fname), "%s/datalog_%u_%llu.csv", mp->mnt_point, boot_count, log_start_time);
-
-  fs_file_t_init(&file);
-
-  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
-  if (rc < 0) {
-    printk("FAIL: open %s: %d\n", fname, rc);
-    goto out;
-  }
-
-  snprintf(buffer, 5, "SOL\n");
-
-  rc = fs_write(&file, buffer, strlen(buffer));
-  if (rc < 0) {
-    printk("FAIL: write %s: %d\n", buffer, rc);
-    goto out;
-  }
-
-  rc = fs_sync(&file);
-  if (rc < 0) {
-    printk("FAIL: sync %s: %d\n", fname, rc);
-    goto out;
-  }
-
-  datadisc_state = LOG;
-
-  while (1) {
-
-    k_msgq_get(&datalog_msgq, &data_item, K_FOREVER);
-
-    //printk("%s", data_item.data);
-
-    rc = fs_write(&file, data_item.data, data_item.length);
-    
-    if (rc < 0) {
-      printk("FAIL: write %s: %d\n", fname, rc);
-      goto out;
-    }
-    data_size += data_item.length;
-
-    //if (data_size >= 4096) {
-    //  rc = fs_sync(&file);
-    //  if (rc < 0) {
-    //    printk("FAIL: sync %s: %d\n", fname, rc);
-    //    goto out;
-    //  }
-    //  data_size = 0;
-    //}
-
-    if (datadisc_state != LOG && k_msgq_num_used_get(&datalog_msgq) <= 0) {
-      goto out;
-    }
-
-    if ((uint64_t)k_uptime_get() - log_start_time > 20000) {
-      goto out;
-    }
-  }
-
-out:
-  datadisc_state = IDLE;
-
-  rc = fs_close(&file);
-  printk("%s close: %d\n", fname, rc);
-
-  k_msgq_purge(&accel_msgq);
-  k_msgq_purge(&datalog_msgq);
-
-  rc = usb_enable(NULL);
-  if (rc != 0) {
-    LOG_ERR("Failed to enable USB");
+  dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
+  if (!device_is_ready(dev) || usb_enable(NULL)) {
     return;
   }
 
-  LOG_INF("The device is put in USB mass storage mode.\n");
+  LOG_INF("Virtual COM port setup complete.\n");
+
+  while (!dtr) {
+    uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+    k_sleep(K_MSEC(100));
+  }
 }
 
-K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
-    NULL, NULL, NULL, PRIORITY+2, 0, TDELAY);
+K_THREAD_DEFINE(uart_ctl_id, STACKSIZE, uart_ctl_thread,
+    NULL, NULL, NULL, PRIORITY, 0, TDELAY);
+
+/***************************************************************
+ *   Shell Commands
+ *
+ ****************************************************************/
+/* DataDisc Shell Commands */
+static int setstate_cmd_handler(const struct shell *shell,
+    size_t argc, char **argv, void *data) {
+
+  Machine_State prev_state = datadisc_state;
+  datadisc_state = (int)data;
+
+  shell_print(shell, "Previous State: %s\n"
+                     "New State     : %s\n",
+              state_strings[prev_state],
+              state_strings[datadisc_state]);
+
+  return 0;
+}
+
+SHELL_SUBCMD_DICT_SET_CREATE(sub_setstate, setstate_cmd_handler,
+    (idle, 0), (init, 1), (log, 2), (erase, 3), (dump, 4), (sleep, 5));
+
+SHELL_CMD_REGISTER(setstate, &sub_setstate, "Set DataDisc State", NULL);
+
+/* Utility Shell Commands */
+static int cmd_demo_ping(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "pong");
+
+  return 0;
+}
+
+static int cmd_version(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "Zephyr version %s", KERNEL_VERSION_STRING);
+
+  return 0;
+}
+
+static int cmd_reboot(const struct shell *shell, size_t argc, char **argv) {
+  ARG_UNUSED(argc);
+  ARG_UNUSED(argv);
+
+  shell_print(shell, "Rebooting...");
+  sys_reboot(SYS_REBOOT_COLD);
+
+  return 0;
+}
+
+SHELL_CMD_REGISTER(ping, NULL, "Demo commands", cmd_demo_ping);
+
+SHELL_CMD_ARG_REGISTER(version, NULL, "Show kernel version", cmd_version, 1, 0);
+
+SHELL_CMD_REGISTER(reboot, NULL, "Reboot device", cmd_reboot);
+
+#endif
 
 
 /***************************************************************
@@ -950,49 +1592,105 @@ K_THREAD_DEFINE(spi_flash_id, STACKSIZE, spi_flash_thread,
 void main(void) {
 
   int err;
-  struct device *dev;
+  Machine_State prev_state = IDLE;
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
   SEGGER_RTT_Init();
 
-  printk("Starting DataDisc v2\n");
+  LOG_INF("Starting DataDisc v2\n");
 
+  // Initialize the Bluetooth Subsystem
+  datadisc_bt_init();
+
+  // Initialize USB and mass storage
   setup_disk();
+
+  k_msleep(2);
+
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
+
+  LOG_INF("USB mass storage setup complete.\n");
+
+  //dev = device_get_binding("GPIO_0");
+
+  err = gpio_pin_configure(device_get_binding("GPIO_0"), 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+  if (err < 0) {
+    return;
+  }
+
+  register_files_with_bt_ots();
 
   datadisc_state = IDLE;
 
   k_condvar_signal(&init_cond);
   k_mutex_unlock(&init_mut);
 
-  // Initialize the Bluetooth Subsystem
-  //err = bt_enable(NULL);
-  //if (err) {
-  //  printk("Bluetooth init failed (err %d)\n", err);
-  //  return;
-  //}
-
-  //bt_ready();
-
-  //dev = device_get_binding("GPIO_0");
-
-  //err = gpio_pin_configure(dev, 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
-  //if (err < 0) {
-  //        return;
-  //}
-
-    printk("%d\n",sizeof(struct datalog_msgq_item_t));
-  
-
 
   // Main loop
   while (1) {
+    
+    /* State Changed */
+    if (datadisc_state != prev_state) {
+      LOG_INF("State changed to %s.\n", log_strdup(state_strings[datadisc_state]));
+      prev_state = datadisc_state;
 
-    /* Battery level */
-    //bt_bas_set_battery_level(soc_percent);
+      switch (datadisc_state) {
+      case IDLE:
+        LOG_INF("Buffer underflows during log: %d\n", temp_counter);
+        temp_counter = 0;
+        break;
 
-    //gpio_pin_toggle(dev, 10);
+      case LOG:
+        if (spi_flash_tid == NULL) {
+          spi_flash_tid = k_thread_create(&spi_flash_thread_data, spi_flash_stack_area,
+              K_THREAD_STACK_SIZEOF(spi_flash_stack_area),
+              spi_flash_thread,
+              NULL, NULL, NULL,
+              PRIORITY + 2, 0, K_NO_WAIT);
+        } else {
+          k_thread_resume(spi_flash_tid);
+        }
+        break;
 
-    k_msleep(200);
+      case ERASE:
+        // Make sure no activity on FLASH bus
+        datadisc_state = IDLE;
+
+        err = usb_disable();
+        if (err != 0) {
+          LOG_ERR("Failed to disable USB");
+          return;
+        }
+        k_msleep(500);
+
+        datadisc_state = ERASE;
+        setup_disk();
+
+        err = usb_enable(NULL);
+        if (err != 0) {
+          LOG_ERR("Failed to enable USB");
+          return;
+        }
+
+        datadisc_state = IDLE;
+        break;
+
+      case DUMP:
+        break;
+
+      case SLEEP:
+        break;
+
+      default:
+        break;
+      }
+    }
+
+    k_msleep(100);
   }
 }

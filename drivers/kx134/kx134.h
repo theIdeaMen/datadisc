@@ -157,8 +157,8 @@
 #define KX134_INS2_BFI(x)			(((x) >> 6) & 0x1)
 #define KX134_INS2_WMI(x)			(((x) >> 5) & 0x1)
 #define KX134_INS2_DRDY(x)			(((x) >> 4) & 0x1)
-#define KX134_INS2_STS(x)			(((x) >> 3) & 0x1)
-#define KX134_INS2_DTS(x)			(((x) >> 2) & 0x1)
+#define KX134_INS2_DTS(x)			(((x) >> 3) & 0x1)
+#define KX134_INS2_STS(x)			(((x) >> 2) & 0x1)
 #define KX134_INS2_TPS(x)			(((x) >> 0) & 0x1)
 
 /* KX134_INS3 */
@@ -436,8 +436,8 @@ enum kx134_sensor_trigger_type {
 	/* End of parent enum, beginning of extended */
 	KX134_SENSOR_TRIG_PRIV_START = SENSOR_TRIG_PRIV_START,
 	
-	/* Any 1 of 8 triggers available to physical INT pin */
-	KX134_SENSOR_TRIG_ANY,
+	/* Idle detection */
+	KX134_SENSOR_TRIG_IDLE,
 };
 
 /* Extended Sensor attributes */
@@ -601,20 +601,25 @@ struct kx134_data {
 		};
 	} __packed;
 
-        uint8_t selected_range;
+        enum kx134_gsel selected_range;
 
 #if defined(CONFIG_KX134_TRIGGER)
         const struct device *dev;
 	const struct device *gpio;
-	struct gpio_callback gpio_cb;
+	struct gpio_callback gpio_int1_cb;
+        struct gpio_callback gpio_int2_cb;
         struct k_mutex trigger_mutex;
 
-	sensor_trigger_handler_t th_handler;
-	struct sensor_trigger th_trigger;
+	//sensor_trigger_handler_t th_handler;
+	//struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t drdy_handler;
 	struct sensor_trigger drdy_trigger;
-        sensor_trigger_handler_t any_handler;
-	struct sensor_trigger any_trigger;
+        sensor_trigger_handler_t idle_handler;
+	struct sensor_trigger idle_trigger;
+        sensor_trigger_handler_t wake_handler;
+	struct sensor_trigger wake_trigger;
+        sensor_trigger_handler_t dbtp_handler;
+	struct sensor_trigger dbtp_trigger;
 
         uint8_t int1_config;
         uint8_t int1_source;
@@ -624,6 +629,8 @@ struct kx134_data {
         uint8_t tap_int;
         uint8_t func_int;
         uint8_t wkup_int;
+
+        atomic_t trig_flags;
 
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);
@@ -651,9 +658,8 @@ struct kx134_config {
 #endif /* CONFIG_KX134_SPI */
 
 #if defined(CONFIG_KX134_TRIGGER)
-	const char *gpio_port;
-	gpio_pin_t int_gpio;
-	gpio_dt_flags_t int_flags;
+	const struct gpio_dt_spec gpio_drdy;
+	const struct gpio_dt_spec gpio_int;
 #endif
 
 	/* Device Settings */
@@ -674,6 +680,13 @@ struct kx134_config {
 
 #ifdef CONFIG_KX134_TRIGGER
 int kx134_get_status(const struct device *dev, uint8_t *status);
+
+int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
+				  uint8_t register_address, uint8_t count);
+
+int kx134_set_reg(const struct device *dev,
+				  uint16_t register_value,
+				  uint8_t register_address, uint8_t count);
 
 int kx134_reg_write_mask(const struct device *dev,
 			   uint8_t reg_addr, uint8_t mask, uint8_t data);
