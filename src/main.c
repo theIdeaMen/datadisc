@@ -42,6 +42,10 @@
 #include <bluetooth/services/bas.h>
 #include <bluetooth/services/ots.h>
 
+#include <mgmt/mcumgr/smp_bt.h>
+#include "os_mgmt/os_mgmt.h"
+#include "img_mgmt/img_mgmt.h"
+
 #include "battery.h"
 #include "kx134.h"
 #include "bm1422.h"
@@ -168,7 +172,9 @@ static const struct bt_data ad[] = {
 
 // Set Scan Response data
 static const struct bt_data sd[] = {
-    BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_OTS_VAL)),
+    BT_DATA_BYTES(BT_DATA_UUID128_ALL,
+		      0x84, 0xaa, 0x60, 0x74, 0x52, 0x8a, 0x8b, 0x86,
+		      0xd3, 0x4c, 0xb7, 0x1d, 0x1d, 0xdc, 0x53, 0x8d),
     BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
@@ -378,6 +384,11 @@ static int ots_init() {
 static void datadisc_bt_init() {
   int err;
 
+  printk("build time: " __DATE__ " " __TIME__ "\n");
+  os_mgmt_register_group();
+  img_mgmt_register_group();
+  smp_bt_register();
+
   err = bt_enable(NULL);
   if (err) {
     LOG_ERR("Bluetooth init failed (err %d)\n", err);
@@ -386,11 +397,11 @@ static void datadisc_bt_init() {
 
   LOG_INF("Bluetooth initialized\n");
 
-  err = ots_init();
-  if (err) {
-    LOG_ERR("Failed to init OTS (err:%d)\n", err);
-    return;
-  }
+  //err = ots_init();
+  //if (err) {
+  //  LOG_ERR("Failed to init OTS (err:%d)\n", err);
+  //  return;
+  //}
 
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
