@@ -397,11 +397,11 @@ static void datadisc_bt_init() {
 
   LOG_INF("Bluetooth initialized\n");
 
-  //err = ots_init();
-  //if (err) {
-  //  LOG_ERR("Failed to init OTS (err:%d)\n", err);
-  //  return;
-  //}
+  err = ots_init();
+  if (err) {
+   LOG_ERR("Failed to init OTS (err:%d)\n", err);
+   return;
+  }
 
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
