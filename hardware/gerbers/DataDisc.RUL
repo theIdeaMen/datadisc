@@ -1,0 +1,10 @@
+DRC Rules Export File for PCB: C:\Users\Griffin\Dropbox\DataDisc\Design\DataDisc v2\PCB\DataDisc.PcbDoc
+RuleKind=Width|RuleName=50_OHM|Scope=Board|Minimum=6.00
+RuleKind=Clearance|RuleName=MicroVias|Scope=Board|Minimum=3.70
+RuleKind=Width|RuleName=Schematic Width Constraint|Scope=Board|Minimum=24.00
+RuleKind=Clearance|RuleName=Schematic Clearance Constraint|Scope=Board|Minimum=5.00
+RuleKind=Clearance|RuleName=50OHM|Scope=Board|Minimum=5.00
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion|Scope=Board|Minimum=0.00
+RuleKind=Width|RuleName=Width|Scope=Board|Minimum=5.00
+RuleKind=Clearance|RuleName=Clearance|Scope=Board|Minimum=5.00
+RuleKind=ShortCircuit|RuleName=ShortCircuit|Scope=Board|Allowed=0
