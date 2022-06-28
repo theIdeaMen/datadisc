@@ -6,10 +6,11 @@
 
 /dts-v1/;
 #include <nordic/nrf5340_cpunet_qkaa.dtsi>
+#include "datadisc_nrf5340_cpunet-pinctrl.dtsi"
 
 / {
-	model = "Nordic NRF5340 DK NRF5340 Network";
-	compatible = "nordic,nrf5340-dk-nrf5340-cpunet";
+	model = "DataDisc v2 NRF5340 Network";
+	compatible = "nordic,datadisc-nrf5340-cpunet";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -39,10 +40,9 @@
 &uart0 {
 	status = "okay";
 	current-speed = <115200>;
-	tx-pin = <20>;
-	rx-pin = <22>;
-	rts-pin = <19>;
-	cts-pin = <21>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-1 = <&uart0_sleep>;
+	pinctrl-names = "default", "sleep";
 };
 
 &timer0 {

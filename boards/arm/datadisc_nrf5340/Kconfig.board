@@ -1,5 +1,6 @@
 # DataDisc v2 NRF5340 board configuration
 
+# Copyright (c) 2020-2022 Griffin Adams
 # SPDX-License-Identifier: Apache-2.0
 
 if SOC_NRF5340_CPUAPP_QKAA

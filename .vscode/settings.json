@@ -3,5 +3,9 @@
         "${workspaceFolder}"
     ],
     "nrf-connect.topdir": "${nrf-connect.sdk:2.0.0}",
-    "nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.0.0}"
+    "nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.0.0}",
+    "files.associations": {
+        "bas.h": "c",
+        "bas_client.h": "c"
+    }
 }

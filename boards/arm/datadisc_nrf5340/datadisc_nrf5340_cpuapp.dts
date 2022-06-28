@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2020-2022 Griffin Adams
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /dts-v1/;
 #include <nordic/nrf5340_cpuapp_qkaa.dtsi>
 #include "nrf5340_cpuapp_common.dts"
@@ -13,11 +19,6 @@
 		zephyr,sram-secure-partition = &sram0_s;
 		zephyr,sram-non-secure-partition = &sram0_ns;
 	};
-	
-	/*
-     * Board-specific hardware: buttons, LEDs, sensors, etc.
-     */
-
 };
 
 zephyr_udc0: &usbd {
