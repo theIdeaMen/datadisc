@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-if(CONFIG_BOARD_DATADISC_NRF5340_CPUAPP_NS)
-  set(TFM_PUBLIC_KEY_FORMAT "full")
-endif()
-
-if(CONFIG_BOARD_DATADISC_NRF5340_CPUAPP OR CONFIG_BOARD_NRF5340DK_NRF5340_CPUAPP_NS) 
+if(CONFIG_BOARD_DATADISC_NRF5340_CPUAPP) 
   board_runner_args(jlink "--device=nrf5340_xxaa_app" "--speed=4000")
 endif()
 

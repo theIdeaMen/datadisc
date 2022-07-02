@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <version.h>
 
-#include <SEGGER_RTT.h>
+//#include <SEGGER_RTT.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
 #include <sys/util.h>
@@ -23,7 +23,7 @@
 #include <sys/reboot.h>
 #include <shell/shell.h>
 
-#include <ff.h>
+//#include <ff.h>
 #include <fs/fs.h>
 #include <storage/flash_map.h>
 #include <usb/usb_device.h>
@@ -597,7 +597,7 @@ extern void led_control_thread(void) {
       break;
     }
 
-    err = pwm_pin_set_usec(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
+    err = pwm_set(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
     if (err < 0) {
       LOG_ERR("err=%d", err);
       return;
@@ -1213,8 +1213,6 @@ extern void spi_flash_thread(void) {
     k_msgq_purge(&accel_msgq);
     k_msgq_purge(&datalog_msgq);
 
-    register_files_with_bt_ots();
-
     k_thread_suspend(k_current_get());
   }
 }
@@ -1359,8 +1357,6 @@ void main(void) {
   if (err < 0) {
     return;
   }
-
-  register_files_with_bt_ots();
 
   datadisc_state = IDLE;
 

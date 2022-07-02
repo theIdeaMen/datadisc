@@ -1,4 +1,4 @@
-# Copyright (c) 2021 Griffin Adams
+# Copyright (c) 2021-2022 Griffin Adams
 # SPDX-License-Identifier: Apache-2.0
 
 CONFIG_SOC_SERIES_NRF53X=y

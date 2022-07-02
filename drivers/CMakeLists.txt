@@ -6,7 +6,6 @@
 
 cmake_minimum_required(VERSION 3.20.4)
 
-if(CONFIG_KX134)
-include_directories(.)
-target_sources(app PRIVATE kx134.c kx134_trigger.c)
-endif()
+add_subdirectory(bm1422)
+add_subdirectory(ch201)
+add_subdirectory(kx134)

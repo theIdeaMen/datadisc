@@ -3,7 +3,7 @@
 # Copyright (c) 2020-2022 Griffin Adams
 # SPDX-License-Identifier: Apache-2.0
 
-if BOARD_DATADISC_NRF5340_CPUAPP || BOARD_DATADISC_NRF5340_CPUAPPNS
+if BOARD_DATADISC_NRF5340_CPUAPP
 
 config BOARD_ENABLE_DCDC_APP
 	bool "Enable Application MCU DCDC converter"

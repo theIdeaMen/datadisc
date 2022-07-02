@@ -3,10 +3,10 @@
 # Copyright (c) 2020-2022 Griffin Adams
 # SPDX-License-Identifier: Apache-2.0
 
-if  BOARD_DATADISC_NRF5340_CPUAPP || BOARD_DATADISC_NRF5340_CPUAPP_NS
+if  BOARD_DATADISC_NRF5340_CPUAPP
 
 config BOARD
-	default "nrf5340dk_nrf5340_cpuapp" if BOARD_DATADISC_NRF5340_CPUAPP || BOARD_DATADISC_NRF5340_CPUAPP_NS
+	default "datadisc_nrf5340_cpuapp" if BOARD_DATADISC_NRF5340_CPUAPP
 
 config ENTROPY_BT_HCI
 	default y if BT_HCI_HOST
