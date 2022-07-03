@@ -23,9 +23,10 @@
 #include <sys/reboot.h>
 #include <shell/shell.h>
 
-//#include <ff.h>
+#include <ff.h>
 #include <fs/fs.h>
 #include <storage/flash_map.h>
+#include <storage/disk_access.h>
 #include <usb/usb_device.h>
 
 #include <drivers/flash.h>
@@ -197,8 +198,8 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 static void datadisc_bt_init() {
   int err;
 
-  printk("build time: " __DATE__ " " __TIME__ "\n");
-  smp_bt_register();
+  // printk("build time: " __DATE__ " " __TIME__ "\n");
+  // smp_bt_register();
 
   err = bt_enable(NULL);
   if (err) {
@@ -1330,8 +1331,6 @@ void main(void) {
   Machine_State prev_state = IDLE;
 
   k_mutex_lock(&init_mut, K_FOREVER);
-
-  SEGGER_RTT_Init();
 
   LOG_INF("Starting DataDisc v2\n");
 

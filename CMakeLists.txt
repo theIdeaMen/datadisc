@@ -8,6 +8,8 @@ cmake_minimum_required(VERSION 3.20.4)
 
 set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_LIST_DIR}/drivers/kx134 ${CMAKE_CURRENT_LIST_DIR}/drivers/bm1422)
 set(BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR})
+set(BOARD datadisc_nrf5340)
+set(CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/kx134.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/bm1422.conf)
 set(DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/usb.overlay)
@@ -21,5 +23,3 @@ set(DATADISC_DIR ${CMAKE_CURRENT_LIST_DIR} CACHE PATH "DataDisc root directory")
 
 FILE(GLOB app_sources src/*.c)
 target_sources(app PRIVATE ${app_sources})
-
-add_subdirectory(drivers)
