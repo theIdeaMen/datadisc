@@ -15,13 +15,14 @@
 #include <errno.h>
 #include <version.h>
 
-//#include <SEGGER_RTT.h>
+#include <SEGGER_RTT.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
 #include <sys/reboot.h>
 #include <shell/shell.h>
+#include <shell/shell_bt_nus.h>
 
 #include <ff.h>
 #include <fs/fs.h>
@@ -43,6 +44,7 @@
 
 #include <bluetooth/services/bas.h>
 #include <bluetooth/services/ots.h>
+#include <bluetooth/services/nus.h>
 
 #include <mgmt/mcumgr/smp_bt.h>
 //#include "os_mgmt/os_mgmt.h"
@@ -163,6 +165,8 @@ static const struct battery_level_point levels[] = {
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
+static struct bt_conn *current_conn;
+
 // Set Advertisement data.
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -184,22 +188,96 @@ static void connected(struct bt_conn *conn, uint8_t err) {
   }
 
   LOG_INF("Connected\n");
+  current_conn = bt_conn_ref(conn);
+	shell_bt_nus_enable(conn);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason) {
   LOG_INF("Disconnected (reason %u)\n", reason);
+
+  shell_bt_nus_disable();
+	if (current_conn) {
+		bt_conn_unref(current_conn);
+		current_conn = NULL;
+	}
+}
+
+static char *log_addr(struct bt_conn *conn)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	return log_strdup(addr);
+}
+
+static void __attribute__((unused)) security_changed(struct bt_conn *conn,
+						     bt_security_t level,
+						     enum bt_security_err err)
+{
+	char *addr = log_addr(conn);
+
+	if (!err) {
+		LOG_INF("Security changed: %s level %u", addr, level);
+	} else {
+		LOG_INF("Security failed: %s level %u err %d", addr, level,
+			err);
+	}
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
     .connected = connected,
     .disconnected = disconnected,
+    COND_CODE_1(CONFIG_BT_SMP,
+      (.security_changed = security_changed), ())
+};
+
+static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
+{
+	LOG_INF("Passkey for %s: %06u", log_addr(conn), passkey);
+}
+
+static void auth_cancel(struct bt_conn *conn)
+{
+	LOG_INF("Pairing cancelled: %s", log_addr(conn));
+}
+
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	LOG_INF("Pairing completed: %s, bonded: %d", log_addr(conn), bonded);
+}
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	LOG_INF("Pairing failed conn: %s, reason %d", log_addr(conn), reason);
+}
+
+static struct bt_conn_auth_cb conn_auth_callbacks = {
+	.passkey_display = auth_passkey_display,
+	.cancel = auth_cancel,
+};
+
+static struct bt_conn_auth_info_cb conn_auth_info_callbacks = {
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed
 };
 
 static void datadisc_bt_init() {
   int err;
 
-  // printk("build time: " __DATE__ " " __TIME__ "\n");
-  // smp_bt_register();
+  if (IS_ENABLED(CONFIG_BT_SMP)) {
+		err = bt_conn_auth_cb_register(&conn_auth_callbacks);
+		if (err) {
+			printk("Failed to register authorization callbacks.\n");
+			return;
+		}
+
+		err = bt_conn_auth_info_cb_register(&conn_auth_info_callbacks);
+		if (err) {
+			printk("Failed to register authorization info callbacks.\n");
+			return;
+		}
+	}
 
   err = bt_enable(NULL);
   if (err) {
@@ -208,6 +286,12 @@ static void datadisc_bt_init() {
   }
 
   LOG_INF("Bluetooth initialized\n");
+
+  err = shell_bt_nus_init();
+	if (err) {
+		LOG_ERR("Failed to initialize BT NUS shell (err: %d)", err);
+		return;
+	}
 
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
@@ -506,19 +590,7 @@ K_THREAD_DEFINE(batt_check_id, STACKSIZE, batt_check_thread,
 /********************************************
  * LED Control
  ********************************************/
-#define PWM_LED0_NODE DT_ALIAS(pwm_led0)
-
-#if DT_NODE_HAS_STATUS(PWM_LED0_NODE, okay)
-#define PWM_CTLR DT_PWMS_CTLR(PWM_LED0_NODE)
-#define PWM_CHANNEL DT_PWMS_CHANNEL(PWM_LED0_NODE)
-#define PWM_FLAGS DT_PWMS_FLAGS(PWM_LED0_NODE)
-#define PWM_NAME DT_LABEL(PWM_LED0_NODE)
-#else
-#error "Unsupported board: pwm-led0 devicetree alias is not defined"
-#define PWM_CTLR DT_INVALID_NODE
-#define PWM_CHANNEL 0
-#define PWM_FLAGS 0
-#endif
+static const struct pwm_dt_spec pwm_led0 = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0));
 
 #define MAX_BRIGHTNESS 75
 
@@ -537,11 +609,10 @@ extern void led_control_thread(void) {
   uint16_t level = 0;
   uint16_t time_now;
 
-  pwm = DEVICE_DT_GET(PWM_CTLR);
-  if (pwm) {
-    LOG_INF("Found device %s", log_strdup(PWM_NAME));
-  } else {
-    LOG_ERR("Device %s not found", log_strdup(PWM_NAME));
+  if (!device_is_ready(pwm_led0.dev))
+  {
+    printk("Error: PWM device %s is not ready\n",
+           pwm_led0.dev->name);
     return;
   }
 
@@ -598,7 +669,7 @@ extern void led_control_thread(void) {
       break;
     }
 
-    err = pwm_set(pwm, PWM_CHANNEL, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U, PWM_FLAGS);
+    err = pwm_set_dt(&pwm_led0, MIN_PERIOD_USEC, (MIN_PERIOD_USEC * level) / 100U);
     if (err < 0) {
       LOG_ERR("err=%d", err);
       return;
