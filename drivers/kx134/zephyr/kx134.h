@@ -582,12 +582,12 @@ enum kx134_buff_mode {
 
 struct kx134_buff_config {
 	enum kx134_buff_mode buff_mode;
-        uint16_t fifo_samples;
+    uint16_t fifo_samples;
 };
 
 
 struct kx134_data {
-	const struct device *bus;
+
 #if defined(CONFIG_KX134_SPI)
 	struct spi_config spi_cfg;
 	struct spi_cs_control kx134_cs_ctrl;
@@ -601,36 +601,34 @@ struct kx134_data {
 		};
 	} __packed;
 
-        enum kx134_gsel selected_range;
+    enum kx134_gsel selected_range;
 
 #if defined(CONFIG_KX134_TRIGGER)
-        const struct device *dev;
+	const struct device *dev;
 	const struct device *gpio;
 	struct gpio_callback gpio_int1_cb;
-        struct gpio_callback gpio_int2_cb;
-        struct k_mutex trigger_mutex;
+	struct gpio_callback gpio_int2_cb;
+	struct k_mutex trigger_mutex;
 
-	//sensor_trigger_handler_t th_handler;
-	//struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t drdy_handler;
 	struct sensor_trigger drdy_trigger;
-        sensor_trigger_handler_t idle_handler;
+	sensor_trigger_handler_t idle_handler;
 	struct sensor_trigger idle_trigger;
-        sensor_trigger_handler_t wake_handler;
+	sensor_trigger_handler_t wake_handler;
 	struct sensor_trigger wake_trigger;
-        sensor_trigger_handler_t dbtp_handler;
+	sensor_trigger_handler_t dbtp_handler;
 	struct sensor_trigger dbtp_trigger;
 
-        uint8_t int1_config;
-        uint8_t int1_source;
+	uint8_t int1_config;
+	uint8_t int1_source;
 	uint8_t int2_config;
-        uint8_t int2_source;
+	uint8_t int2_source;
 
-        uint8_t tap_int;
-        uint8_t func_int;
-        uint8_t wkup_int;
+	uint8_t tap_int;
+	uint8_t func_int;
+	uint8_t wkup_int;
 
-        atomic_t trig_flags;
+	atomic_t trig_flags;
 
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);
@@ -644,17 +642,11 @@ struct kx134_data {
 
 struct kx134_config {
 #ifdef CONFIG_KX134_I2C
-	const char *i2c_port;
-	uint16_t i2c_addr;
+	struct i2c_dt_spec i2c;
 #endif
 
 #ifdef CONFIG_KX134_SPI
-	const char *spi_port;
-	uint16_t spi_slave;
-	uint32_t spi_max_frequency;
-	const char *gpio_cs_port;
-	gpio_pin_t cs_gpio;
-	gpio_dt_flags_t cs_flags;
+	struct spi_dt_spec spi;
 #endif /* CONFIG_KX134_SPI */
 
 #if defined(CONFIG_KX134_TRIGGER)

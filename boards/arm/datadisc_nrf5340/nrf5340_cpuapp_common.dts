@@ -66,12 +66,6 @@
 	pinctrl-0 = <&i2c1_default>;
 	pinctrl-1 = <&i2c1_sleep>;
 	pinctrl-names = "default", "sleep";
-
-	/* 
-	clock-frequency = <400000>;
-	sda-pin = <35>;
-	scl-pin = <34>;
-	*/
 	
 	bm1422agmv@e {
 		compatible = "rohm,bm1422agmv";
@@ -116,18 +110,6 @@
 	pinctrl-0 = <&uart0_default>;
 	pinctrl-1 = <&uart0_sleep>;
 	pinctrl-names = "default", "sleep";
-	
-	/*
-	compatible = "nordic,nrf-uarte";
-	status = "okay";
-	current-speed = <115200>;
-	tx-pin = <20>;
-	rx-pin = <22>;
-	rx-pull-up;
-	rts-pin = <19>;
-	cts-pin = <21>;
-	cts-pull-up;
-	*/
 };
 
 &uart1 {
@@ -145,14 +127,6 @@
 	pinctrl-0 = <&spi2_default>;
 	pinctrl-1 = <&spi2_sleep>;
 	pinctrl-names = "default", "sleep";
-
-	/*
-	sck-pin = <7>;
-	miso-pin = <8>;
-	mosi-pin = <9>;
-	cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
-	miso-pull-down;
-	*/
 	
 	kx134alpha: kx134-1211@0 {
 		compatible = "kionix,kx134-1211";
@@ -172,14 +146,6 @@
 	pinctrl-0 = <&spi4_default>;
 	pinctrl-1 = <&spi4_sleep>;
 	pinctrl-names = "default", "sleep";
-
-	/*
-	sck-pin = <39>;
-	miso-pin = <40>;
-	mosi-pin = <41>;
-	cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
-	miso-pull-down;
-	*/
 	
 	kx134beta: kx134-1211@0 {
 		compatible = "kionix,kx134-1211";
@@ -197,12 +163,6 @@
 	pinctrl-0 = <&qspi_default>;
 	pinctrl-1 = <&qspi_sleep>;
 	pinctrl-names = "default", "sleep";
-	
-	/*
-	sck-pin = <17>;
-	io-pins = <13>, <14>, <15>, <16>;
-	csn-pins = <18>;
-	*/
 
 	mx25u32: mx25u3232f@0 {
 		compatible = "nordic,qspi-nor";
