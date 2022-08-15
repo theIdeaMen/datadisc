@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"nrf-connect.applications": [
+			"${workspaceFolder}"
+		],
+		"files.associations": {
+			"bas.h": "c",
+			"bas_client.h": "c"
+		},
+		"nrf-connect.enableTelemetry": true,
+		"nrf-connect.kconfig.interface": "kconfig",
+		"nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.0.0}",
+		"nrf-connect.topdir": "${nrf-connect.sdk:2.0.0}"
+	}
+}

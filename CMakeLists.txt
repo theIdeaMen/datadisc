@@ -13,7 +13,6 @@ set(CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/kx134.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/bm1422.conf)
 set(DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/usb.overlay)
-						#${CMAKE_CURRENT_LIST_DIR}/qspi.overlay)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(datadisc)
