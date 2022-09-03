@@ -189,13 +189,11 @@ static void connected(struct bt_conn *conn, uint8_t err) {
 
   LOG_INF("Connected\n");
   current_conn = bt_conn_ref(conn);
-	shell_bt_nus_enable(conn);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason) {
   LOG_INF("Disconnected (reason %u)\n", reason);
 
-  shell_bt_nus_disable();
 	if (current_conn) {
 		bt_conn_unref(current_conn);
 		current_conn = NULL;
@@ -286,12 +284,6 @@ static void datadisc_bt_init() {
   }
 
   LOG_INF("Bluetooth initialized\n");
-
-  err = shell_bt_nus_init();
-	if (err) {
-		LOG_ERR("Failed to initialize BT NUS shell (err: %d)", err);
-		return;
-	}
 
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {

@@ -1,12 +1,13 @@
 /*
- * Copyright (c) 2020-2022 Griffin Adams
+ * Copyright (c) 2021 Nordic Semiconductor ASA
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-/ {
+ / {
 	chosen {
-		zephyr,shell-uart = &cdc_acm_uart0;
+		zephyr,console = &cdc_acm_uart0;
+		nordic,nus-uart = &cdc_acm_uart0;
 	};
 };
 
