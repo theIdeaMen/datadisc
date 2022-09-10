@@ -1,0 +1,15 @@
+{
+    "folders": [
+        {
+            "name": "datadisc",
+            "path": ".."
+        }
+    ],
+    "settings": {
+        "nrf-connect.applications": [
+            "${workspaceFolder}"
+        ],
+        "nrf-connect.topdir": "${nrf-connect.sdk:1.9.1}",
+        "nrf-connect.toolchain.path": "${nrf-connect.toolchain:1.9.1}"
+    }
+}

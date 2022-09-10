@@ -42,9 +42,9 @@
 #include <bluetooth/services/bas.h>
 #include <bluetooth/services/ots.h>
 
-#include <mgmt/mcumgr/smp_bt.h>
-#include "os_mgmt/os_mgmt.h"
-#include "img_mgmt/img_mgmt.h"
+//#include <mgmt/mcumgr/smp_bt.h>
+//#include "os_mgmt/os_mgmt.h"
+//#include "img_mgmt/img_mgmt.h"
 
 #include "battery.h"
 #include "kx134.h"
@@ -383,11 +383,6 @@ static int ots_init() {
 
 static void datadisc_bt_init() {
   int err;
-
-  printk("build time: " __DATE__ " " __TIME__ "\n");
-  os_mgmt_register_group();
-  img_mgmt_register_group();
-  smp_bt_register();
 
   err = bt_enable(NULL);
   if (err) {
