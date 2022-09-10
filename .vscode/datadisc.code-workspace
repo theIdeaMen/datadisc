@@ -10,7 +10,8 @@
 		],
 		"files.associations": {
 			"bas.h": "c",
-			"bas_client.h": "c"
+			"bas_client.h": "c",
+			"smp_bt.h": "c"
 		},
 		"nrf-connect.enableTelemetry": true,
 		"nrf-connect.kconfig.interface": "kconfig",

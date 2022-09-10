@@ -22,7 +22,6 @@
 #include <sys/byteorder.h>
 #include <sys/reboot.h>
 #include <shell/shell.h>
-#include <shell/shell_bt_nus.h>
 
 #include <ff.h>
 #include <fs/fs.h>
@@ -43,12 +42,7 @@
 #include <zephyr/bluetooth/gatt.h>
 
 #include <bluetooth/services/bas.h>
-#include <bluetooth/services/ots.h>
 #include <bluetooth/services/nus.h>
-
-#include <mgmt/mcumgr/smp_bt.h>
-//#include "os_mgmt/os_mgmt.h"
-//#include "img_mgmt/img_mgmt.h"
 
 #include "battery.h"
 #include "kx134.h"
