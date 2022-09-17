@@ -1253,7 +1253,7 @@ extern void spi_flash_thread(void) {
         goto out;
       }
 
-      if (k_uptime_get_32() - log_start_time > 30000) {
+      if (k_uptime_get_32() - log_start_time > 15000) {
         datadisc_state = IDLE;
       }
     }

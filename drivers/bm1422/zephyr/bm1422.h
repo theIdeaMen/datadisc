@@ -196,9 +196,7 @@ struct bm1422_config {
 	uint16_t i2c_addr;
 
 #if defined(CONFIG_BM1422_TRIGGER)
-	const char *gpio_port;
-	gpio_pin_t int_gpio;
-	gpio_dt_flags_t int_flags;
+	const struct gpio_dt_spec gpio_drdy;
 #endif
 
 	/* Device Settings */

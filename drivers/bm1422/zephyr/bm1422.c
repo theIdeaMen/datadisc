@@ -11,9 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <drivers/sensor.h>
 #include <drivers/gpio.h>
 #include <drivers/i2c.h>
-#include <drivers/sensor.h>
 
 #include <logging/log.h>
 #include <sys/__assert.h>
@@ -593,25 +593,29 @@ static int bm1422_init(const struct device *dev) {
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define CREATE_BM1422_DEVICE(inst)                               \
-  static struct bm1422_data bm1422_data_##inst = {           \
-      /* initialize RAM values as needed, e.g.: */           \
-  };                                                         \
-  static const struct bm1422_config bm1422_config_##inst = { \
-      /* initialize ROM values as needed. */                 \
-      .i2c_port = DT_INST_BUS_LABEL(inst),                   \
-      .i2c_addr = DT_INST_REG_ADDR(inst),                    \
-      .gpio_port = DT_INST_GPIO_LABEL(inst, irq_gpios),      \
-      .int_gpio = DT_INST_GPIO_PIN(inst, irq_gpios),         \
-      .int_flags = DT_INST_GPIO_FLAGS(inst, irq_gpios),      \
-  };                                                         \
-  DEVICE_DT_INST_DEFINE(inst,                                \
-      bm1422_init,                                           \
-      NULL,                                                  \
-      &bm1422_data_##inst,                                   \
-      &bm1422_config_##inst,                                 \
-      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,              \
-      &bm1422_api_funcs);
+#define GPIO_DT_SPEC_INST_GET_BY_IDX_COND(id, prop, idx)     \
+  COND_CODE_1(DT_INST_PROP_HAS_IDX(id, prop, idx),           \
+              (GPIO_DT_SPEC_INST_GET_BY_IDX(id, prop, idx)), \
+              ({.port = NULL, .pin = 0, .dt_flags = 0}))
+
+#define CREATE_BM1422_DEVICE(inst)                                \
+  static struct bm1422_data bm1422_data_##inst = {                \
+      /* initialize RAM values as needed, e.g.: */                \
+  };                                                              \
+  static const struct bm1422_config bm1422_config_##inst = {      \
+      /* initialize ROM values as needed. */                      \
+      .i2c_port = DT_INST_BUS_LABEL(inst),                        \
+      .i2c_addr = DT_INST_REG_ADDR(inst),                         \
+      .gpio_drdy =                                                \
+          GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 0),  \
+  };                                                              \
+  DEVICE_DT_INST_DEFINE(inst,                                     \
+                        bm1422_init,                              \
+                        NULL,                                     \
+                        &bm1422_data_##inst,                      \
+                        &bm1422_config_##inst,                    \
+                        POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, \
+                        &bm1422_api_funcs);
 
 /* Call the device creation macro for each instance: */
 DT_INST_FOREACH_STATUS_OKAY(CREATE_BM1422_DEVICE)

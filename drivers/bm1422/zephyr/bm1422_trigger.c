@@ -23,7 +23,6 @@ static void bm1422_thread_cb(const struct device *dev) {
 
   if (drv_data->drdy_handler != NULL) {
     drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
-    //bm1422_clear_interrupts(dev);
   }
 
   k_mutex_unlock(&drv_data->trigger_mutex);
@@ -91,26 +90,30 @@ int bm1422_trigger_set(const struct device *dev, const struct sensor_trigger *tr
 int bm1422_init_interrupt(const struct device *dev) {
   struct bm1422_data *drv_data = dev->data;
   const struct bm1422_config *cfg = dev->config;
+  int status;
 
   k_mutex_init(&drv_data->trigger_mutex);
 
-  drv_data->gpio = device_get_binding(cfg->gpio_port);
-  if (drv_data->gpio == NULL) {
-    LOG_ERR("Failed to get pointer to %s device!", cfg->gpio_port);
-    return -EINVAL;
+  status = gpio_pin_configure_dt(&cfg->gpio_drdy, GPIO_INPUT);
+  if (status < 0) {
+    LOG_ERR("Could not configure %s.%02u",
+        cfg->gpio_drdy.port->name, cfg->gpio_drdy.pin);
+    return status;
   }
-
-  gpio_pin_configure(drv_data->gpio, cfg->int_gpio,
-      GPIO_INPUT | cfg->int_flags);
-
+  
   gpio_init_callback(&drv_data->gpio_cb,
       bm1422_gpio_callback,
-      BIT(cfg->int_gpio));
+      BIT(cfg->gpio_drdy.pin));
 
-  if (gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb) < 0) {
-    LOG_ERR("Failed to set gpio callback!");
-    return -EIO;
+  status = gpio_add_callback(cfg->gpio_drdy.port, &drv_data->gpio_cb);
+  if (status < 0) {
+    LOG_ERR("Could not add gpio int callback");
+    return status;
   }
+
+  LOG_INF("%s: int on %s.%02u", dev->name,
+    cfg->gpio_drdy.port->name,
+    cfg->gpio_drdy.pin);
 
   drv_data->dev = dev;
 
@@ -130,9 +133,6 @@ int bm1422_init_interrupt(const struct device *dev) {
 #elif defined(CONFIG_BM1422_TRIGGER_GLOBAL_THREAD)
   drv_data->work.handler = bm1422_work_cb;
 #endif
-
-  gpio_pin_interrupt_configure(drv_data->gpio, cfg->int_gpio,
-				     GPIO_INT_EDGE_TO_ACTIVE);
 
   return 0;
 }
