@@ -8,8 +8,8 @@
 #include <nordic/nrf5340_cpunet_qkaa.dtsi>
 
 / {
-	model = "Nordic NRF5340 DK NRF5340 Network";
-	compatible = "nordic,nrf5340-dk-nrf5340-cpunet";
+	model = "DataDisc v2 NRF5340 Network";
+	compatible = "nordic,datadisc-nrf5340-cpunet";
 
 	chosen {
 		zephyr,console = &uart0;

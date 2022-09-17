@@ -8,7 +8,6 @@
 	chosen {
 		zephyr,console = &uart0;
 		zephyr,shell-uart = &uart0;
-		zephyr,uart-mcumgr = &uart0;
 		zephyr,bt-mon-uart = &uart0;
 		zephyr,bt-c2h-uart = &uart0;
 		nordic,pm-ext-flash = &mx25u32;
@@ -27,14 +26,6 @@
 		my_pwm: pwm_device_0 {
 			pwms = < &pwm0 31 >;
 			label = "PWM LED";
-		};
-	};
-	
-	gpio_fwd: nrf-gpio-forwarder {
-		compatible = "nordic,nrf-gpio-forwarder";
-		status = "okay";
-		uart {
-			gpios = <&gpio1 1 0>, <&gpio1 0 0>, <&gpio0 11 0>, <&gpio0 10 0>;
 		};
 	};
 	
