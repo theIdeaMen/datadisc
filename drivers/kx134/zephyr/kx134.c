@@ -24,49 +24,49 @@
 
 LOG_MODULE_REGISTER(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
-static int kx134_reg_access(struct kx134_data *ctx, uint8_t cmd,
-			      uint8_t reg_addr, void *data, size_t length)
+static int kx134_reg_access(const struct device *dev, uint8_t cmd,
+							uint8_t reg_addr, void *data, size_t length)
 {
-        int ret;
+	int ret;
+	const struct kx134_config *cfg = dev->config;
+
 #ifdef CONFIG_KX134_SPI
-	if (cmd == KX134_READ_REG) {
+	if (cmd == KX134_READ_REG)
+	{
 
-              uint8_t buffer_tx[2] = { reg_addr | 0x80 };
-              const struct spi_buf tx_buf = {
-                              .buf = buffer_tx,
-                              .len = 1,
-              };
-              const struct spi_buf_set tx = {
-                      .buffers = &tx_buf,
-                      .count = 1
-              };
-              const struct spi_buf rx_buf[2] = {
-                      {
-                              .buf = NULL,
-                              .len = 1,
-                      },
-                      {
-                              .buf = data,
-                              .len = length,
-                      }
-              };
-              const struct spi_buf_set rx = {
-                      .buffers = rx_buf,
-                      .count = 2
-              };
+		uint8_t buffer_tx[2] = {reg_addr | 0x80};
+		const struct spi_buf tx_buf = {
+			.buf = buffer_tx,
+			.len = 1,
+		};
+		const struct spi_buf_set tx = {
+			.buffers = &tx_buf,
+			.count = 1};
+		const struct spi_buf rx_buf[2] = {
+			{
+				.buf = NULL,
+				.len = 1,
+			},
+			{
+				.buf = data,
+				.len = length,
+			}};
+		const struct spi_buf_set rx = {
+			.buffers = rx_buf,
+			.count = 2};
 
+		if (length > 64)
+		{
+			return -EIO;
+		}
+		ret = spi_transceive_dt(&cfg->spi, &tx, &rx);
 
-              if (length > 64) {
-                      return -EIO;
-              }
-              ret = spi_transceive(ctx->bus, &ctx->spi_cfg, &tx, &rx);
+		LOG_DBG("Read %d bytes starting with 0x%02X from 0x%02X", length, *((uint8_t *)data), reg_addr);
 
-              LOG_DBG("Read %d bytes starting with 0x%02X from 0x%02X", length, *((uint8_t*)data), reg_addr);
-
-              return ret;
+		return ret;
 	}
 
-        uint8_t buffer_tx[1] = { reg_addr };
+	uint8_t buffer_tx[1] = {reg_addr};
 	const struct spi_buf tx_buf[2] = {
 		{
 			.buf = buffer_tx,
@@ -75,37 +75,40 @@ static int kx134_reg_access(struct kx134_data *ctx, uint8_t cmd,
 		{
 			.buf = data,
 			.len = length,
-		}
-	};
+		}};
 	const struct spi_buf_set tx = {
 		.buffers = tx_buf,
-		.count = 2
-	};
+		.count = 2};
 
-        if (length > 64) {
+	if (length > 64)
+	{
 		return -EIO;
 	}
 
-	ret = spi_write(ctx->bus, &ctx->spi_cfg, &tx);
+	ret = spi_write_dt(&cfg->spi, &tx);
 
-        LOG_DBG("Wrote 0x%02X to 0x%02X", *((uint8_t*)data), reg_addr);
+	LOG_DBG("Wrote 0x%02X to 0x%02X", *((uint8_t *)data), reg_addr);
 
-        return ret;
+	return ret;
 
 #elif CONFIG_KX134_I2C
-	if (cmd == KX134_READ_REG) {
-		return i2c_burst_read(ctx->bus, ctx->i2c_addr,
-				      KX134_TO_I2C_REG(reg),
-				      (uint8_t *) data, length);
-	} else {
-		if (length != 1) {
-			return -EINVAL;
-		}
+	// if (cmd == KX134_READ_REG)
+	// {
+	// 	return i2c_burst_read(ctx->bus, ctx->i2c_addr,
+	// 						  KX134_TO_I2C_REG(reg),
+	// 						  (uint8_t *)data, length);
+	// }
+	// else
+	// {
+	// 	if (length != 1)
+	// 	{
+	// 		return -EINVAL;
+	// 	}
 
-		return i2c_reg_write_byte(ctx->bus, ctx->i2c_addr,
-					  KX134_TO_I2C_REG(reg),
-					  *(uint8_t *)data);
-	}
+	// 	return i2c_reg_write_byte(ctx->bus, ctx->i2c_addr,
+	// 							  KX134_TO_I2C_REG(reg),
+	// 							  *(uint8_t *)data);
+	// }
 
 #endif
 }
@@ -121,9 +124,7 @@ static int kx134_reg_access(struct kx134_data *ctx, uint8_t cmd,
 int kx134_get_reg(const struct device *dev, uint8_t *read_buf,
 				  uint8_t register_address, uint8_t count)
 {
-	struct kx134_data *kx134_data = dev->data;
-
-	return kx134_reg_access(kx134_data,
+	return kx134_reg_access(dev,
 				  KX134_READ_REG,
 				  register_address,
 				  read_buf, count);
@@ -141,41 +142,44 @@ int kx134_set_reg(const struct device *dev,
 				  uint16_t register_value,
 				  uint8_t register_address, uint8_t count)
 {
-        int ret;
+	int ret;
 	uint8_t cntl1_before;
-        uint8_t zero = 0;
-        struct kx134_data *kx134_data = dev->data;
+	uint8_t zero = 0;
 
-        // KX134 needs to be in standby for write access
+	// KX134 needs to be in standby for write access
 	ret = kx134_get_reg(dev, &cntl1_before, KX134_CNTL1, 1);
-	if (ret) {
+	if (ret)
+	{
 		return ret;
 	}
 
-        ret = kx134_reg_access(kx134_data,
-				  KX134_WRITE_REG,
-				  KX134_CNTL1, &zero, 1);
-        if (ret) {
+	ret = kx134_reg_access(dev,
+						   KX134_WRITE_REG,
+						   KX134_CNTL1, &zero, 1);
+	if (ret)
+	{
 		return ret;
 	}
 
-	ret = kx134_reg_access(kx134_data,
-				  KX134_WRITE_REG,
-				  register_address,
-				  &register_value,
-				  count);
-        if (ret) {
+	ret = kx134_reg_access(dev,
+						   KX134_WRITE_REG,
+						   register_address,
+						   &register_value,
+						   count);
+	if (ret)
+	{
 		return ret;
 	}
 
-        if (register_address == KX134_CNTL1) {
-                return ret;
-        }
+	if (register_address == KX134_CNTL1)
+	{
+		return ret;
+	}
 
-        // Put CNTL1 back to its previous value
-        return kx134_reg_access(kx134_data,
-				  KX134_WRITE_REG,
-				  KX134_CNTL1, &cntl1_before, 1);
+	// Put CNTL1 back to its previous value
+	return kx134_reg_access(dev,
+							KX134_WRITE_REG,
+							KX134_CNTL1, &cntl1_before, 1);
 }
 
 /**
@@ -749,82 +753,93 @@ uint8_t kx134_get_kconfig_inc6(void) {
 
 static int kx134_chip_init(const struct device *dev)
 {
-        struct kx134_data *data = dev->data;
+	struct kx134_data *data = dev->data;
 	int ret;
 
 	/* Device settings from kconfig */
 	ret = kx134_reg_write_mask(dev, KX134_ODCNTL,
-				      KX134_ODCNTL_OUT_ODR_MSK,
-				      KX134_ODCNTL_OUT_ODR_MODE(kx134_get_kconfig_odr()));
-	if (ret) {
+							   KX134_ODCNTL_OUT_ODR_MSK,
+							   KX134_ODCNTL_OUT_ODR_MODE(kx134_get_kconfig_odr()));
+	if (ret)
+	{
 		return ret;
 	}
 
-        data->selected_range = kx134_get_kconfig_gsel();
-        ret = kx134_reg_write_mask(dev, KX134_CNTL1,
-				      KX134_CNTL1_GSEL_MSK,
-				      KX134_CNTL1_GSEL_MODE(data->selected_range));
-	if (ret) {
+	data->selected_range = kx134_get_kconfig_gsel();
+	ret = kx134_reg_write_mask(dev, KX134_CNTL1,
+							   KX134_CNTL1_GSEL_MSK,
+							   KX134_CNTL1_GSEL_MODE(data->selected_range));
+	if (ret)
+	{
 		return ret;
 	}
-
 
 #if defined(CONFIG_KX134_TRIGGER)
-        data->int1_config = kx134_get_kconfig_inc1();
-        data->int1_source = kx134_get_kconfig_inc4();
+	data->int1_config = kx134_get_kconfig_inc1();
+	data->int1_source = kx134_get_kconfig_inc4();
 
-        data->int2_config = kx134_get_kconfig_inc5();
-        data->int2_source = kx134_get_kconfig_inc6();
+	data->int2_config = kx134_get_kconfig_inc5();
+	data->int2_source = kx134_get_kconfig_inc6();
 
-        ret = kx134_set_reg(dev, data->int1_config, KX134_INC1, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, data->int1_config, KX134_INC1, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, kx134_get_kconfig_inc2(), KX134_INC2, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, kx134_get_kconfig_inc2(), KX134_INC2, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, kx134_get_kconfig_inc3(), KX134_INC3, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, kx134_get_kconfig_inc3(), KX134_INC3, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, data->int1_source, KX134_INC4, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, data->int1_source, KX134_INC4, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, data->int2_config, KX134_INC5, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, data->int2_config, KX134_INC5, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, data->int2_source, KX134_INC6, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, data->int2_source, KX134_INC6, 1);
+	if (ret)
+	{
 		return ret;
 	}
 
-
-	if (kx134_init_interrupt(dev) < 0) {
+	if (kx134_init_interrupt(dev) < 0)
+	{
 		LOG_ERR("Failed to initialize interrupt!");
 		return -EIO;
 	}
 #endif
-        
-        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl2(), KX134_CNTL2, 1);
-	if (ret) {
+
+	ret = kx134_set_reg(dev, kx134_get_kconfig_cntl2(), KX134_CNTL2, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl3(), KX134_CNTL3, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, kx134_get_kconfig_cntl3(), KX134_CNTL3, 1);
+	if (ret)
+	{
 		return ret;
 	}
-        ret = kx134_set_reg(dev, kx134_get_kconfig_cntl4(), KX134_CNTL4, 1);
-	if (ret) {
+	ret = kx134_set_reg(dev, kx134_get_kconfig_cntl4(), KX134_CNTL4, 1);
+	if (ret)
+	{
 		return ret;
 	}
 
-        ret = kx134_reg_write_mask(dev, KX134_CNTL1,
-				      KX134_CNTL1_ACTIVE_MSK,
-				      KX134_CNTL1_ACTIVE_MODE(kx134_get_kconfig_op_mode()));
-	if (ret) {
+	ret = kx134_reg_write_mask(dev, KX134_CNTL1,
+							   KX134_CNTL1_ACTIVE_MSK,
+							   KX134_CNTL1_ACTIVE_MODE(kx134_get_kconfig_op_mode()));
+	if (ret)
+	{
 		return ret;
 	}
 
@@ -834,65 +849,51 @@ static int kx134_chip_init(const struct device *dev)
 static int kx134_init(const struct device *dev)
 {
 	const struct kx134_config *cfg = dev->config;
-        struct kx134_data *data = dev->data;
-        uint8_t value[2];
+	struct kx134_data *data = dev->data;
+	uint8_t value[2];
 	int err;
 
-        data->dev = dev;
+	data->dev = dev;
 
 #ifdef CONFIG_KX134_I2C
-	data->bus  = device_get_binding(cfg->i2c_port);
-	if (data->bus  == NULL) {
-		LOG_ERR("Failed to get pointer to %s device!",
-			    cfg->i2c_port);
-		return -EINVAL;
+	if (!device_is_ready(cfg->i2c.bus))
+	{
+		LOG_ERR("I2C bus not ready!");
+		return -ENODEV;
 	}
 #endif
 #ifdef CONFIG_KX134_SPI
-	data->bus = device_get_binding(cfg->spi_port);
-	if (!data->bus) {
-		LOG_ERR("spi device not found: %s", cfg->spi_port);
-		return -EINVAL;
-	}
-	/* CPOL=0, CPHA=0, max 10MHz */
-	data->spi_cfg.operation = SPI_WORD_SET(8) | SPI_TRANSFER_MSB;
-	data->spi_cfg.frequency = cfg->spi_max_frequency;
-	data->spi_cfg.slave = cfg->spi_slave;
-
-	data->kx134_cs_ctrl.gpio_dev = device_get_binding(cfg->gpio_cs_port);
-	if (!data->kx134_cs_ctrl.gpio_dev) {
-		LOG_ERR("Unable to get GPIO SPI CS device");
+	if (!spi_is_ready(&cfg->spi))
+	{
+		LOG_ERR("SPI device not found");
 		return -ENODEV;
 	}
-
-	data->kx134_cs_ctrl.gpio_pin = cfg->cs_gpio;
-	data->kx134_cs_ctrl.gpio_dt_flags = cfg->cs_flags;
-	data->kx134_cs_ctrl.delay = 0U;
-
-	data->spi_cfg.cs = &data->kx134_cs_ctrl;
 #endif /* CONFIG_KX134_SPI */
 
 	err = kx134_software_reset(dev);
 
-	if (err) {
+	if (err)
+	{
 		LOG_ERR("kx134_software_reset failed, error %d\n", err);
 		return -ENODEV;
 	}
-        k_sleep(K_MSEC(5));
+	k_sleep(K_MSEC(5));
 
-        value[0] = 0;
+	value[0] = 0;
 
-        kx134_get_reg(dev, value, KX134_PART_ID, sizeof(value));
-	if (value[0] != KX134_WHO_AM_I_VAL) {
+	kx134_get_reg(dev, value, KX134_PART_ID, sizeof(value));
+	if (value[0] != KX134_WHO_AM_I_VAL)
+	{
 		LOG_ERR("Failed Part-ID: %d\n", value[0]);
 		return -ENODEV;
 	}
 
-	if (kx134_chip_init(dev) < 0) {
+	if (kx134_chip_init(dev) < 0)
+	{
 		return -ENODEV;
 	}
 
-        return 0;
+	return 0;
 }
 
 
@@ -902,34 +903,26 @@ static int kx134_init(const struct device *dev)
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define GPIO_DT_SPEC_INST_GET_BY_IDX_COND(id, prop, idx)       \
-	COND_CODE_1(DT_INST_PROP_HAS_IDX(id, prop, idx),           \
-				(GPIO_DT_SPEC_INST_GET_BY_IDX(id, prop, idx)), \
-				({.port = NULL, .pin = 0, .dt_flags = 0}))
-
-#define CREATE_KX134_DEVICE(inst)                                   \
-	static struct kx134_data kx134_data_##inst = {                  \
-		/* initialize RAM values as needed, e.g.: */                \
-	};                                                              \
-	static const struct kx134_config kx134_config_##inst = {        \
-		/* initialize ROM values as needed. */                      \
-		.spi_port = DT_INST_BUS_LABEL(inst),                        \
-		.spi_slave = DT_INST_REG_ADDR(inst),                        \
-		.spi_max_frequency = DT_INST_PROP(inst, spi_max_frequency), \
-		.gpio_cs_port = DT_INST_SPI_DEV_CS_GPIOS_LABEL(inst),       \
-		.cs_gpio = DT_INST_SPI_DEV_CS_GPIOS_PIN(inst),              \
-		.cs_flags = DT_INST_SPI_DEV_CS_GPIOS_FLAGS(inst),           \
-		.gpio_drdy =                                                \
-			GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 0),  \
-		.gpio_int =                                                 \
-			GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 1),  \
-	};                                                              \
-	DEVICE_DT_INST_DEFINE(inst,                                     \
-						  kx134_init,                               \
-						  NULL,                                     \
-						  &kx134_data_##inst,                       \
-						  &kx134_config_##inst,                     \
-						  POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, \
+#define CREATE_KX134_DEVICE(inst)                                                                                    \
+	static struct kx134_data kx134_data_##inst = {                                                                   \
+		/* initialize RAM values as needed, e.g.: */                                                                 \
+	};                                                                                                               \
+	static const struct kx134_config kx134_config_##inst = {                                                         \
+		/* initialize ROM values as needed. */                                                                       \
+		COND_CODE_1(DT_INST_ON_BUS(inst, spi),                                                                       \
+					(.spi = SPI_DT_SPEC_INST_GET(inst, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8), 0)), \
+					(.i2c = I2C_DT_SPEC_INST_GET(inst))),                                                            \
+		.gpio_drdy =                                                                                                 \
+			GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 0),                                                        \
+		.gpio_int =                                                                                                  \
+			GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 1),                                                        \
+	};                                                                                                               \
+	DEVICE_DT_INST_DEFINE(inst,                                                                                      \
+						  kx134_init,                                                                                \
+						  NULL,                                                                                      \
+						  &kx134_data_##inst,                                                                        \
+						  &kx134_config_##inst,                                                                      \
+						  POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,                                                  \
 						  &kx134_api_funcs);
 
 /* Call the device creation macro for each instance: */

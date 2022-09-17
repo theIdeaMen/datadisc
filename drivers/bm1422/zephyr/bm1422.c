@@ -593,11 +593,6 @@ static int bm1422_init(const struct device *dev) {
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define GPIO_DT_SPEC_INST_GET_BY_IDX_COND(id, prop, idx)     \
-  COND_CODE_1(DT_INST_PROP_HAS_IDX(id, prop, idx),           \
-              (GPIO_DT_SPEC_INST_GET_BY_IDX(id, prop, idx)), \
-              ({.port = NULL, .pin = 0, .dt_flags = 0}))
-
 #define CREATE_BM1422_DEVICE(inst)                                \
   static struct bm1422_data bm1422_data_##inst = {                \
       /* initialize RAM values as needed, e.g.: */                \
@@ -607,7 +602,7 @@ static int bm1422_init(const struct device *dev) {
       .i2c_port = DT_INST_BUS_LABEL(inst),                        \
       .i2c_addr = DT_INST_REG_ADDR(inst),                         \
       .gpio_drdy =                                                \
-          GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 0),  \
+          GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 0),  \
   };                                                              \
   DEVICE_DT_INST_DEFINE(inst,                                     \
                         bm1422_init,                              \

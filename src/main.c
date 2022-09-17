@@ -20,14 +20,14 @@
 #include <logging/log_ctrl.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
-#include <sys/reboot.h>
-#include <shell/shell.h>
+//#include <sys/reboot.h>
+//#include <shell/shell.h>
 
-#include <ff.h>
 #include <fs/fs.h>
 #include <storage/flash_map.h>
 #include <storage/disk_access.h>
 #include <usb/usb_device.h>
+#include <ff.h>
 
 #include <drivers/flash.h>
 #include <drivers/gpio.h>

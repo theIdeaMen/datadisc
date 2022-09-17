@@ -27,9 +27,4 @@ target_sources_ifdef(CONFIG_BT_NUS_UART_ASYNC_ADAPTER app PRIVATE
   src/uart_async_adapter.c
 )
 
-# Preinitialization related to DataDisc DFU
-target_sources_ifdef(CONFIG_IMG_MANAGER app PRIVATE
-  boards/datadisc.c
-)
-
 zephyr_library_include_directories(include)

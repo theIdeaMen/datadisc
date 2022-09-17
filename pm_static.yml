@@ -1,0 +1,4 @@
+storage:
+  address: 0
+  region: external_flash
+  size: 0x00400000
