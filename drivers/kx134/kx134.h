@@ -604,33 +604,31 @@ struct kx134_data {
         enum kx134_gsel selected_range;
 
 #if defined(CONFIG_KX134_TRIGGER)
-        const struct device *dev;
+	const struct device *dev;
 	const struct device *gpio;
 	struct gpio_callback gpio_int1_cb;
-        struct gpio_callback gpio_int2_cb;
-        struct k_mutex trigger_mutex;
+	struct gpio_callback gpio_int2_cb;
+	struct k_mutex trigger_mutex;
 
-	//sensor_trigger_handler_t th_handler;
-	//struct sensor_trigger th_trigger;
 	sensor_trigger_handler_t drdy_handler;
 	struct sensor_trigger drdy_trigger;
-        sensor_trigger_handler_t idle_handler;
+	sensor_trigger_handler_t idle_handler;
 	struct sensor_trigger idle_trigger;
-        sensor_trigger_handler_t wake_handler;
+	sensor_trigger_handler_t wake_handler;
 	struct sensor_trigger wake_trigger;
-        sensor_trigger_handler_t dbtp_handler;
+	sensor_trigger_handler_t dbtp_handler;
 	struct sensor_trigger dbtp_trigger;
 
-        uint8_t int1_config;
-        uint8_t int1_source;
+	uint8_t int1_config;
+	uint8_t int1_source;
 	uint8_t int2_config;
-        uint8_t int2_source;
+	uint8_t int2_source;
 
-        uint8_t tap_int;
-        uint8_t func_int;
-        uint8_t wkup_int;
+	uint8_t tap_int;
+	uint8_t func_int;
+	uint8_t wkup_int;
 
-        atomic_t trig_flags;
+	atomic_t trig_flags;
 
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_KX134_THREAD_STACK_SIZE);

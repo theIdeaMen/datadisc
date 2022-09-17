@@ -343,10 +343,5 @@ int kx134_init_interrupt(const struct device *dev) {
   drv_data->work.handler = kx134_work_cb;
 #endif
 
-  //gpio_pin_interrupt_configure(drv_data->gpio, cfg->int_gpio,
-		//		     GPIO_INT_EDGE_TO_ACTIVE);
-  //gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_LEVEL_ACTIVE);
-  //gpio_pin_interrupt_configure_dt(&cfg->gpio_int, GPIO_INT_LEVEL_ACTIVE);
-
   return 0;
 }
