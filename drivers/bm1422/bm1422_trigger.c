@@ -134,5 +134,11 @@ int bm1422_init_interrupt(const struct device *dev) {
   drv_data->work.handler = bm1422_work_cb;
 #endif
 
+  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_EDGE_TO_ACTIVE);
+  if (status < 0) {
+    LOG_ERR("Could not config gpio int");
+    return status;
+  }
+
   return 0;
 }

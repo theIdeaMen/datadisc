@@ -28,6 +28,14 @@
 			label = "PWM LED";
 		};
 	};
+
+	gpio_fwd: nrf-gpio-forwarder {
+		compatible = "nordic,nrf-gpio-forwarder";
+		status = "okay";
+		uart {
+			gpios = <&gpio0 20 0>, <&gpio0 22 0>, <&gpio0 19 0>, <&gpio0 21 0>;
+		};
+	};
 	
 	/* These aliases are provided for compatibility with samples */
 	aliases {
