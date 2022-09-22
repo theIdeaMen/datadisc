@@ -5,7 +5,7 @@ list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj.conf
 						${CMAKE_CURRENT_LIST_DIR}/kx134.conf
 						${CMAKE_CURRENT_LIST_DIR}/bm1422.conf)
 list(APPEND DTS_ROOT ${CMAKE_CURRENT_LIST_DIR}/drivers)
-list(APPEND DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/usb.overlay)
+#list(APPEND DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/usb.overlay)
 						#${CMAKE_CURRENT_LIST_DIR}/qspi.overlay)
 
 cmake_minimum_required(VERSION 3.20.0)
