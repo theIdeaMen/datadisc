@@ -27,7 +27,6 @@
 #include <storage/flash_map.h>
 #include <storage/disk_access.h>
 #include <usb/usb_device.h>
-#include <ff.h>
 
 #include <drivers/flash.h>
 #include <drivers/gpio.h>
@@ -81,11 +80,18 @@ static const char *const state_strings[] = {
 #include <storage/flash_map.h>
 #endif
 
+#if CONFIG_FAT_FILESYSTEM_ELM
+#include <ff.h>
+#endif
+
 #if CONFIG_FILE_SYSTEM_LITTLEFS
 #include <fs/littlefs.h>
 //FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
 FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 #endif
+
+#define STORAGE_PARTITION		    storage_partition
+#define STORAGE_PARTITION_ID		FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 static struct fs_mount_t fs_mnt;
 
@@ -200,7 +206,7 @@ static char *log_addr(struct bt_conn *conn)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	return log_strdup(addr);
+	return (addr);
 }
 
 static void __attribute__((unused)) security_changed(struct bt_conn *conn,
@@ -305,12 +311,6 @@ float running_jerk(struct Comp_Data *data) {
   return jerk;
 }
 
-static void wait_on_log_flushed(void) {
-  while (log_buffered_cnt()) {
-    k_sleep(K_MSEC(15));
-  }
-}
-
 uint32_t uptime_get_us(void) {
   return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
 }
@@ -339,26 +339,29 @@ static const char *now_str(void) {
 }
 
 static int setup_flash(struct fs_mount_t *mnt) {
+
   int rc = 0;
 #if CONFIG_DISK_DRIVER_FLASH
   unsigned int id;
   const struct flash_area *pfa;
 
-  mnt->storage_dev = (void *)FLASH_AREA_ID(storage);
-  id = (uintptr_t)mnt->storage_dev;
+  mnt->storage_dev = (void *)STORAGE_PARTITION_ID;
+  id = STORAGE_PARTITION_ID;
 
   rc = flash_area_open(id, &pfa);
-  LOG_INF("Area %u at 0x%x on %s for %u bytes\n",
-      id, (unsigned int)pfa->fa_off, log_strdup(pfa->fa_dev_name),
-      (unsigned int)pfa->fa_size);
+  printk("Area %u at 0x%x on %s for %u bytes\n",
+         id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
+         (unsigned int)pfa->fa_size);
 
-  if (rc == 0 && (IS_ENABLED(CONFIG_APP_WIPE_STORAGE) || datadisc_state == ERASE)) {
-    LOG_INF("Erasing flash area ... ");
+  if (rc < 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE))
+  {
+    printk("Erasing flash area ... ");
     rc = flash_area_erase(pfa, 0, pfa->fa_size);
-    LOG_INF("%d\n", rc);
+    printk("%d\n", rc);
   }
 
-  if (rc < 0) {
+  if (rc < 0)
+  {
     flash_area_close(pfa);
   }
 #endif
@@ -391,119 +394,80 @@ static int mount_app_fs(struct fs_mount_t *mnt) {
   return rc;
 }
 
-uint8_t boot_count;
+static void setup_disk(void)
+{
+	struct fs_mount_t *mp = &fs_mnt;
+	struct fs_dir_t dir;
+	struct fs_statvfs sbuf;
+	int rc;
 
-static void setup_disk(void) {
-  struct fs_mount_t *mp = &fs_mnt;
-  struct fs_dir_t dir;
-  struct fs_statvfs sbuf;
-  char fname[MAX_PATH_LEN];
-  int rc;
+	fs_dir_t_init(&dir);
 
-  if (mp->mnt_point != NULL) {
-    rc = fs_unmount(mp);
-    if (rc < 0) {
-      LOG_ERR("Failed to unmount filesystem");
-      return;
-    }
-  }
+	if (IS_ENABLED(CONFIG_DISK_DRIVER_FLASH)) {
+		rc = setup_flash(mp);
+		if (rc < 0) {
+			LOG_ERR("Failed to setup flash area");
+			return;
+		}
+	}
 
-  fs_dir_t_init(&dir);
+	if (!IS_ENABLED(CONFIG_FILE_SYSTEM_LITTLEFS) &&
+	    !IS_ENABLED(CONFIG_FAT_FILESYSTEM_ELM)) {
+		LOG_INF("No file system selected");
+		return;
+	}
 
-  if (IS_ENABLED(CONFIG_DISK_DRIVER_FLASH)) {
-    rc = setup_flash(mp);
-    if (rc < 0) {
-      LOG_ERR("Failed to setup flash area");
-      return;
-    }
-  }
+	rc = mount_app_fs(mp);
+	if (rc < 0) {
+		LOG_ERR("Failed to mount filesystem");
+		return;
+	}
 
-  if (!IS_ENABLED(CONFIG_FILE_SYSTEM_LITTLEFS) &&
-      !IS_ENABLED(CONFIG_FAT_FILESYSTEM_ELM)) {
-    LOG_INF("No file system selected");
-    return;
-  }
+	/* Allow log messages to flush to avoid interleaved output */
+	k_sleep(K_MSEC(50));
 
-  rc = mount_app_fs(mp);
-  if (rc < 0) {
-    LOG_ERR("Failed to mount filesystem");
-    return;
-  }
+	printk("Mount %s: %d\n", fs_mnt.mnt_point, rc);
 
-  /* Allow log messages to flush to avoid interleaved output */
-  k_sleep(K_MSEC(50));
+	rc = fs_statvfs(mp->mnt_point, &sbuf);
+	if (rc < 0) {
+		printk("FAIL: statvfs: %d\n", rc);
+		return;
+	}
 
-  LOG_INF("Mount %s: %d\n", log_strdup(fs_mnt.mnt_point), rc);
+	printk("%s: bsize = %lu ; frsize = %lu ;"
+	       " blocks = %lu ; bfree = %lu\n",
+	       mp->mnt_point,
+	       sbuf.f_bsize, sbuf.f_frsize,
+	       sbuf.f_blocks, sbuf.f_bfree);
 
-  rc = fs_statvfs(mp->mnt_point, &sbuf);
-  if (rc < 0) {
-    LOG_ERR("FAIL: statvfs: %d\n", rc);
-    return;
-  }
+	rc = fs_opendir(&dir, mp->mnt_point);
+	printk("%s opendir: %d\n", mp->mnt_point, rc);
 
-  LOG_INF("%s: bsize = %lu ; frsize = %lu ;"
-         " blocks = %lu ; bfree = %lu\n",
-      log_strdup(mp->mnt_point),
-      sbuf.f_bsize, sbuf.f_frsize,
-      sbuf.f_blocks, sbuf.f_bfree);
+	if (rc < 0) {
+		LOG_ERR("Failed to open directory");
+	}
 
-  rc = fs_opendir(&dir, mp->mnt_point);
-  LOG_INF("%s opendir: %d\n", log_strdup(mp->mnt_point), rc);
+	while (rc >= 0) {
+		struct fs_dirent ent = { 0 };
 
-  if (rc < 0) {
-    LOG_ERR("Failed to open directory");
-  }
+		rc = fs_readdir(&dir, &ent);
+		if (rc < 0) {
+			LOG_ERR("Failed to read directory entries");
+			break;
+		}
+		if (ent.name[0] == 0) {
+			printk("End of files\n");
+			break;
+		}
+		printk("  %c %u %s\n",
+		       (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
+		       ent.size,
+		       ent.name);
+	}
 
-  while (rc >= 0) {
-    struct fs_dirent ent = {0};
+	(void)fs_closedir(&dir);
 
-    rc = fs_readdir(&dir, &ent);
-    if (rc < 0) {
-      LOG_ERR("Failed to read directory entries");
-      break;
-    }
-    if (ent.name[0] == 0) {
-      LOG_INF("End of files\n");
-      break;
-    }
-    LOG_INF("  %c %u %s\n",
-        (ent.type == FS_DIR_ENTRY_FILE) ? 'F' : 'D',
-        ent.size,
-        log_strdup(ent.name));
-  }
-
-  (void)fs_closedir(&dir);
-
-  snprintf(fname, sizeof(fname), "%s/boot_count", log_strdup(mp->mnt_point));
-
-  struct fs_file_t file;
-
-  fs_file_t_init(&file);
-
-  rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
-  if (rc < 0) {
-    LOG_ERR("FAIL: open %s: %d\n", log_strdup(fname), rc);
-    return;
-  }
-
-  boot_count = 0;
-
-  if (rc >= 0) {
-    rc = fs_read(&file, &boot_count, sizeof(boot_count));
-    LOG_INF("%s read count %u: %d\n", log_strdup(fname), boot_count, rc);
-    rc = fs_seek(&file, 0, FS_SEEK_SET);
-    LOG_INF("%s seek start: %d\n", log_strdup(fname), rc);
-  }
-
-  boot_count += 1;
-  rc = fs_write(&file, &boot_count, sizeof(boot_count));
-  LOG_INF("%s write new boot count %u: %d\n", log_strdup(fname),
-      boot_count, rc);
-
-  rc = fs_close(&file);
-  LOG_INF("%s close: %d\n", log_strdup(fname), rc);
-
-  return;
+	return;
 }
 
 
@@ -519,7 +483,7 @@ K_CONDVAR_DEFINE(init_cond);
 /********************************************
  * Battery check
  ********************************************/
-extern void batt_check_thread(void) {
+void batt_check_thread(void *p1, void *p2, void *p3) {
 
   int off_time; // turn off divider to save power (ms)
   unsigned int soc_percent = 0; // State of charge percentage
@@ -555,7 +519,7 @@ extern void batt_check_thread(void) {
 
     batt_pptt = battery_level_pptt(batt_mV, levels);
 
-    LOG_DBG("[%s]: %d mV; %u pptt\n", log_strdup(now_str()), batt_mV, batt_pptt);
+    LOG_DBG("[%s]: %d mV; %u pptt\n", (now_str()), batt_mV, batt_pptt);
 
     soc_percent = batt_pptt / 100;
 
@@ -588,9 +552,8 @@ static const struct pwm_dt_spec pwm_led0 = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0));
 #define M_E 2.71828182845904523536
 #define SCALING_CONST (MAX_BRIGHTNESS / (M_E - (1 / M_E)))
 
-extern void led_control_thread(void) {
+void led_control_thread(void *p1, void *p2, void *p3) {
 
-  const struct device *pwm;
   int err;
   uint16_t level = 0;
   uint16_t time_now;
@@ -683,7 +646,7 @@ K_SEM_DEFINE(sem_accel_alpha_tap, 0, 1);
 K_SEM_DEFINE(sem_accel_beta_drdy, 0, 1);
 K_SEM_DEFINE(sem_accel_beta_idle, 0, 1);
 
-static void accel_alpha_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+void accel_alpha_drdy_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger) {
 
   ARG_UNUSED(trigger);
 
@@ -695,7 +658,7 @@ static void accel_alpha_drdy_trigger_handler(const struct device *dev, struct se
   k_sem_give(&sem_accel_alpha_drdy);
 }
 
-extern void accel_alpha_drdy_thread(void) {
+void accel_alpha_drdy_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -725,7 +688,7 @@ extern void accel_alpha_drdy_thread(void) {
     return;
   }
   if (!device_is_ready(dev)) {
-    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    LOG_ERR("Device %s is not ready", (dev->name));
     return;
   }
 
@@ -790,7 +753,7 @@ K_THREAD_DEFINE(accel_alpha_drdy_id, STACKSIZE, accel_alpha_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-static void accel_alpha_tap_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+void accel_alpha_tap_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger) {
 
   ARG_UNUSED(dev);
 
@@ -802,7 +765,7 @@ static void accel_alpha_tap_trigger_handler(const struct device *dev, struct sen
   LOG_ERR("Unrecognized trigger");
 }
 
-extern void accel_alpha_tap_thread(void) {
+void accel_alpha_tap_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -819,7 +782,7 @@ extern void accel_alpha_tap_thread(void) {
     return;
   }
   if (!device_is_ready(dev)) {
-    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    LOG_ERR("Device %s is not ready", (dev->name));
     return;
   }
 
@@ -850,7 +813,7 @@ K_THREAD_DEFINE(accel_alpha_tap_id, STACKSIZE, accel_alpha_tap_thread,
     NULL, NULL, NULL, PRIORITY+1, 0, TDELAY);
 
 
-static void accel_beta_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+void accel_beta_drdy_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger) {
 
   ARG_UNUSED(trigger);
 
@@ -862,7 +825,7 @@ static void accel_beta_drdy_trigger_handler(const struct device *dev, struct sen
   k_sem_give(&sem_accel_beta_drdy);
 }
 
-extern void accel_beta_drdy_thread(void) {
+void accel_beta_drdy_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -892,7 +855,7 @@ extern void accel_beta_drdy_thread(void) {
     return;
   }
   if (!device_is_ready(dev)) {
-    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    LOG_ERR("Device %s is not ready", (dev->name));
     return;
   }
 
@@ -957,7 +920,7 @@ K_THREAD_DEFINE(accel_beta_drdy_id, STACKSIZE, accel_beta_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
 
-static void accel_beta_idle_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+void accel_beta_idle_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger) {
 
   ARG_UNUSED(dev);
 
@@ -969,7 +932,7 @@ static void accel_beta_idle_trigger_handler(const struct device *dev, struct sen
   LOG_ERR("Unrecognized trigger");
 }
 
-extern void accel_beta_idle_thread(void) {
+void accel_beta_idle_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -986,7 +949,7 @@ extern void accel_beta_idle_thread(void) {
     return;
   }
   if (!device_is_ready(dev)) {
-    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    LOG_ERR("Device %s is not ready", (dev->name));
     return;
   }
 
@@ -1027,7 +990,7 @@ K_THREAD_DEFINE(accel_beta_idle_id, STACKSIZE, accel_beta_idle_thread,
 
 K_SEM_DEFINE(magn_sem, 0, 1);
 
-static void magn_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
+void magn_trigger_handler(const struct device *dev, const struct sensor_trigger *trigger) {
 
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
@@ -1037,7 +1000,7 @@ static void magn_trigger_handler(const struct device *dev, struct sensor_trigger
   k_sem_give(&magn_sem);
 }
 
-extern void magn_thread(void) {
+void magn_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -1056,7 +1019,7 @@ extern void magn_thread(void) {
     return;
   }
   if (!device_is_ready(dev)) {
-    LOG_ERR("Device %s is not ready", log_strdup(dev->name));
+    LOG_ERR("Device %s is not ready", (dev->name));
     return;
   }
 
@@ -1104,7 +1067,7 @@ K_THREAD_DEFINE(magn_id, STACKSIZE, magn_thread,
  ********************************************/
 uint16_t temp_counter = 0;
 
-extern void runtime_compute_thread(void) {
+void runtime_compute_thread(void *p1, void *p2, void *p3) {
 
   k_mutex_lock(&init_mut, K_FOREVER);
 
@@ -1163,7 +1126,7 @@ K_THREAD_DEFINE(runtime_compute_id, STACKSIZE, runtime_compute_thread,
  ********************************************/
     // Buffer created outside thread to avoid stack overflow
 
-extern void spi_flash_thread(void) {
+void spi_flash_thread(void *p1, void *p2, void *p3) {
 
   struct fs_mount_t *mp = &fs_mnt;
   struct fs_file_t file;
@@ -1184,10 +1147,10 @@ extern void spi_flash_thread(void) {
     log_start_time = k_uptime_get_32();
   
     if (!mp->mnt_point) {
-      LOG_ERR("FAIL: mount id %u at %s", id, log_strdup(mp->mnt_point));
+      LOG_ERR("FAIL: mount id %u at %s", id, (mp->mnt_point));
       return;
     }
-    LOG_INF("%s mount\n", log_strdup(mp->mnt_point));
+    LOG_INF("%s mount\n", (mp->mnt_point));
 
     // *.ddl = DataDiscLog file, binary list of numbers
     // delete oldest log
@@ -1206,7 +1169,7 @@ extern void spi_flash_thread(void) {
     fs_file_t_init(&file);
     rc = fs_open(&file, latest_fname, FS_O_CREATE | FS_O_RDWR);
     if (rc < 0) {
-      LOG_ERR("FAIL: open %s: %d\n", log_strdup(latest_fname), rc);
+      LOG_ERR("FAIL: open %s: %d\n", (latest_fname), rc);
       goto out;
     }
 
@@ -1214,13 +1177,13 @@ extern void spi_flash_thread(void) {
 
     rc = fs_write(&file, buffer, strlen(buffer));
     if (rc < 0) {
-      LOG_ERR("FAIL: write %s: %d\n", log_strdup(buffer), rc);
+      LOG_ERR("FAIL: write %s: %d\n", (buffer), rc);
       goto out;
     }
 
     rc = fs_sync(&file);
     if (rc < 0) {
-      LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+      LOG_ERR("FAIL: sync %s: %d\n", (latest_fname), rc);
       goto out;
     }
 
@@ -1235,7 +1198,7 @@ extern void spi_flash_thread(void) {
 
       rc = fs_write(&file, buffer, data_item.length);
       if (rc < 0) {
-        LOG_ERR("FAIL: write %s: %d\n", log_strdup(latest_fname), rc);
+        LOG_ERR("FAIL: write %s: %d\n", (latest_fname), rc);
         goto out;
       }
       data_size += data_item.length;
@@ -1243,7 +1206,7 @@ extern void spi_flash_thread(void) {
       if (data_size >= 4096) {
         rc = fs_sync(&file);
         if (rc < 0) {
-          LOG_ERR("FAIL: sync %s: %d\n", log_strdup(latest_fname), rc);
+          LOG_ERR("FAIL: sync %s: %d\n", (latest_fname), rc);
           goto out;
         }
         data_size = 0;
@@ -1266,7 +1229,7 @@ extern void spi_flash_thread(void) {
     rc = fs_write(&file, buffer, strlen(buffer));
 
     rc = fs_close(&file);
-    LOG_INF("%s close: %d\n", log_strdup(latest_fname), rc);
+    LOG_INF("%s close: %d\n", (latest_fname), rc);
 
     k_msgq_purge(&accel_msgq);
     k_msgq_purge(&datalog_msgq);
@@ -1425,7 +1388,7 @@ void main(void) {
     
     /* State Changed */
     if (datadisc_state != prev_state) {
-      LOG_INF("State changed to %s.\n", log_strdup(state_strings[datadisc_state]));
+      LOG_INF("State changed to %s.\n", (state_strings[datadisc_state]));
       prev_state = datadisc_state;
 
       switch (datadisc_state) {

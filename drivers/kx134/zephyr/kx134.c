@@ -469,8 +469,8 @@ static int kx134_channel_get(const struct device *dev,
 			kx134_accel_convert(&val[i], data->acc_xyz[i], data->selected_range);
 		}
 		break;
-        case KX134_SENSOR_CHAN_INT_SOURCE:
-                val->val1 = data->func_int;
+    case KX134_SENSOR_CHAN_INT_SOURCE:
+        val->val1 = data->func_int;
 		break;
 	default:
 		return -ENOTSUP;
@@ -480,8 +480,8 @@ static int kx134_channel_get(const struct device *dev,
 }
 
 static const struct sensor_driver_api kx134_api_funcs = {
-        .attr_set     = kx134_attr_set,
-        .attr_get     = kx134_attr_get,
+    .attr_set     = kx134_attr_set,
+    .attr_get     = kx134_attr_get,
 	.sample_fetch = kx134_sample_fetch,
 	.channel_get  = kx134_channel_get,
 #ifdef CONFIG_KX134_TRIGGER

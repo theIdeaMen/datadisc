@@ -556,12 +556,13 @@ static int bm1422_init(const struct device *dev) {
   uint8_t value[2];
   int err;
 
-  data->bus = device_get_binding(cfg->i2c_port);
-  if (data->bus == NULL) {
-    LOG_ERR("Failed to get pointer to %s device!",
-        cfg->i2c_port);
-    return -EINVAL;
-  }
+  data->dev = dev;
+
+  if (!device_is_ready(cfg->i2c.bus))
+	{
+		LOG_ERR("I2C bus not ready!");
+		return -ENODEV;
+	}
 
   err = bm1422_software_reset(dev);
   if (err) {
@@ -599,10 +600,9 @@ static int bm1422_init(const struct device *dev) {
   };                                                              \
   static const struct bm1422_config bm1422_config_##inst = {      \
       /* initialize ROM values as needed. */                      \
-      .i2c_port = DT_INST_BUS_LABEL(inst),                        \
-      .i2c_addr = DT_INST_REG_ADDR(inst),                         \
+      .i2c = I2C_DT_SPEC_INST_GET(inst),                          \
       .gpio_drdy =                                                \
-          GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 0),  \
+          GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 0),       \
   };                                                              \
   DEVICE_DT_INST_DEFINE(inst,                                     \
                         bm1422_init,                              \

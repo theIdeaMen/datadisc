@@ -192,8 +192,7 @@ struct bm1422_data {
 };
 
 struct bm1422_config {
-	const char *i2c_port;
-	uint16_t i2c_addr;
+	struct i2c_dt_spec i2c;
 
 #if defined(CONFIG_BM1422_TRIGGER)
 	const struct gpio_dt_spec gpio_drdy;

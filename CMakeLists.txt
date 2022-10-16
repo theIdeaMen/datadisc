@@ -11,7 +11,7 @@ set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_LIST_DIR}/drivers/kx134 ${CMAKE_CURRENT
 set(CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/kx134.conf)
 list(APPEND CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/bm1422.conf)
-set(DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/usb.overlay)
+set(DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/boards/datadisc_nrf5340_cpuapp.overlay)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(datadisc)
@@ -21,10 +21,5 @@ set(DATADISC_DIR ${CMAKE_CURRENT_LIST_DIR} CACHE PATH "DataDisc root directory")
 
 FILE(GLOB app_sources src/*.c)
 target_sources(app PRIVATE ${app_sources})
-
-# Include UART ASYNC API adapter
-target_sources_ifdef(CONFIG_BT_NUS_UART_ASYNC_ADAPTER app PRIVATE
-  src/uart_async_adapter.c
-)
 
 zephyr_library_include_directories(include)
