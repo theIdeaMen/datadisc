@@ -24,6 +24,16 @@
 
 LOG_MODULE_REGISTER(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
+
+/**
+ * Register access.
+ * @param dev - The device structure.
+ * @param cmd - Read or write.
+ * @param reg_addr - The register address.
+ * @param data - Data buffer.
+ * @param length - Number of bytes to read.
+ * @return 0 in case of success, negative error code otherwise.
+ */
 static int kx134_reg_access(const struct device *dev, uint8_t cmd,
 							uint8_t reg_addr, void *data, size_t length)
 {
@@ -92,23 +102,23 @@ static int kx134_reg_access(const struct device *dev, uint8_t cmd,
 	return ret;
 
 #elif CONFIG_KX134_I2C
-	// if (cmd == KX134_READ_REG)
-	// {
-	// 	return i2c_burst_read(ctx->bus, ctx->i2c_addr,
-	// 						  KX134_TO_I2C_REG(reg),
-	// 						  (uint8_t *)data, length);
-	// }
-	// else
-	// {
-	// 	if (length != 1)
-	// 	{
-	// 		return -EINVAL;
-	// 	}
+	if (cmd == KX134_READ_REG)
+	{
+		return i2c_burst_read_dt(cfg->i2c,
+								 BM1422_TO_I2C_REG(reg_addr),
+								 (uint8_t *)data, length);
+	}
+	else
+	{
+		if (length != 1)
+		{
+			return -EINVAL;
+		}
 
-	// 	return i2c_reg_write_byte(ctx->bus, ctx->i2c_addr,
-	// 							  KX134_TO_I2C_REG(reg),
-	// 							  *(uint8_t *)data);
-	// }
+		return i2c_reg_write_byte_dt(cfg->i2c,
+									 BM1422_TO_I2C_REG(reg_addr),
+									 *(uint8_t *)data);
+	}
 
 #endif
 }

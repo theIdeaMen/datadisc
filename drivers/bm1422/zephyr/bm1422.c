@@ -23,24 +23,38 @@
 
 LOG_MODULE_REGISTER(BM1422, CONFIG_SENSOR_LOG_LEVEL);
 
-static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
-    uint8_t reg_addr, void *data, size_t length) {
 
-  struct bm1422_data *bm1422_data = dev->data;
+/**
+ * Register access.
+ * @param dev - The device structure.
+ * @param cmd - Read or write.
+ * @param reg_addr - The register address.
+ * @param data - Data buffer.
+ * @param length - Number of bytes to read.
+ * @return 0 in case of success, negative error code otherwise.
+ */
+static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
+                             uint8_t reg_addr, void *data, size_t length)
+{
+
   const struct bm1422_config *cfg = dev->config;
 
-  if (cmd == BM1422_READ_REG) {
-    return i2c_burst_read(bm1422_data->bus, cfg->i2c_addr,
-        BM1422_TO_I2C_REG(reg_addr),
-        (uint8_t *)data, length);
-  } else {
-    if (length != 1) {
+  if (cmd == BM1422_READ_REG)
+  {
+    return i2c_burst_read_dt(&cfg->i2c,
+                             BM1422_TO_I2C_REG(reg_addr),
+                             (uint8_t *)data, length);
+  }
+  else
+  {
+    if (length != 1)
+    {
       return -EINVAL;
     }
 
-    return i2c_reg_write_byte(bm1422_data->bus, cfg->i2c_addr,
-        BM1422_TO_I2C_REG(reg_addr),
-        *(uint8_t *)data);
+    return i2c_reg_write_byte_dt(&cfg->i2c,
+                                 BM1422_TO_I2C_REG(reg_addr),
+                                 *(uint8_t *)data);
   }
 }
 

@@ -24,7 +24,6 @@
 //#include <shell/shell.h>
 
 #include <fs/fs.h>
-#include <storage/flash_map.h>
 #include <storage/disk_access.h>
 #include <usb/usb_device.h>
 
@@ -91,7 +90,7 @@ FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 #endif
 
 #define STORAGE_PARTITION		    storage_partition
-#define STORAGE_PARTITION_ID		FIXED_PARTITION_ID(STORAGE_PARTITION)
+#define STORAGE_PARTITION_ID		DT_FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 static struct fs_mount_t fs_mnt;
 
