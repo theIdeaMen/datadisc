@@ -89,9 +89,6 @@ static const char *const state_strings[] = {
 FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(storage, 32, 32, 64, 16);
 #endif
 
-#define STORAGE_PARTITION		    storage_partition
-#define STORAGE_PARTITION_ID		DT_FIXED_PARTITION_ID(STORAGE_PARTITION)
-
 static struct fs_mount_t fs_mnt;
 
 
@@ -169,6 +166,8 @@ static struct bt_conn *current_conn;
 // Set Advertisement data.
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA_BYTES(BT_DATA_UUID16_ALL,
+		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
     BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
@@ -199,82 +198,14 @@ static void disconnected(struct bt_conn *conn, uint8_t reason) {
 	}
 }
 
-static char *log_addr(struct bt_conn *conn)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	return (addr);
-}
-
-static void __attribute__((unused)) security_changed(struct bt_conn *conn,
-						     bt_security_t level,
-						     enum bt_security_err err)
-{
-	char *addr = log_addr(conn);
-
-	if (!err) {
-		LOG_INF("Security changed: %s level %u", addr, level);
-	} else {
-		LOG_INF("Security failed: %s level %u err %d", addr, level,
-			err);
-	}
-}
-
 BT_CONN_CB_DEFINE(conn_callbacks) = {
     .connected = connected,
-    .disconnected = disconnected,
-    COND_CODE_1(CONFIG_BT_SMP,
-      (.security_changed = security_changed), ())
+    .disconnected = disconnected
 };
 
-static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
-{
-	LOG_INF("Passkey for %s: %06u", log_addr(conn), passkey);
-}
-
-static void auth_cancel(struct bt_conn *conn)
-{
-	LOG_INF("Pairing cancelled: %s", log_addr(conn));
-}
-
-static void pairing_complete(struct bt_conn *conn, bool bonded)
-{
-	LOG_INF("Pairing completed: %s, bonded: %d", log_addr(conn), bonded);
-}
-
-static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
-{
-	LOG_INF("Pairing failed conn: %s, reason %d", log_addr(conn), reason);
-}
-
-static struct bt_conn_auth_cb conn_auth_callbacks = {
-	.passkey_display = auth_passkey_display,
-	.cancel = auth_cancel,
-};
-
-static struct bt_conn_auth_info_cb conn_auth_info_callbacks = {
-	.pairing_complete = pairing_complete,
-	.pairing_failed = pairing_failed
-};
 
 static void datadisc_bt_init() {
   int err;
-
-  if (IS_ENABLED(CONFIG_BT_SMP)) {
-		err = bt_conn_auth_cb_register(&conn_auth_callbacks);
-		if (err) {
-			printk("Failed to register authorization callbacks.\n");
-			return;
-		}
-
-		err = bt_conn_auth_info_cb_register(&conn_auth_info_callbacks);
-		if (err) {
-			printk("Failed to register authorization info callbacks.\n");
-			return;
-		}
-	}
 
   err = bt_enable(NULL);
   if (err) {
@@ -344,8 +275,8 @@ static int setup_flash(struct fs_mount_t *mnt) {
   unsigned int id;
   const struct flash_area *pfa;
 
-  mnt->storage_dev = (void *)STORAGE_PARTITION_ID;
-  id = STORAGE_PARTITION_ID;
+  mnt->storage_dev = (void *)FLASH_AREA_ID(storage_partition);
+  id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
   printk("Area %u at 0x%x on %s for %u bytes\n",
