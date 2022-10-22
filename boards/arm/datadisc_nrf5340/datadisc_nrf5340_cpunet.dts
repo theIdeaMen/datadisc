@@ -13,12 +13,12 @@
 	compatible = "nordic,datadisc-nrf5340-cpunet";
 
 	chosen {
-		zephyr,console = &uart0;
-		zephyr,shell-uart = &uart0;
-		zephyr,uart-mcumgr = &uart0;
-		zephyr,bt-mon-uart = &uart0;
-		zephyr,bt-c2h-uart = &uart0;
-		zephyr,bt-hci-rpmsg-ipc = &ipc0;
+		// zephyr,console = &uart0;
+		// zephyr,shell-uart = &uart0;
+		// zephyr,uart-mcumgr = &uart0;
+		// zephyr,bt-mon-uart = &uart0;
+		// zephyr,bt-c2h-uart = &uart0;
+		// zephyr,bt-hci-rpmsg-ipc = &ipc0;
 		zephyr,sram = &sram1;
 		zephyr,flash = &flash1;
 		zephyr,code-partition = &slot0_partition;
@@ -26,25 +26,25 @@
 
 };
 
-&gpiote {
-	status = "okay";
-};
+// &gpiote {
+// 	status = "okay";
+// };
 
-&gpio0 {
-	status = "okay";
-};
+// &gpio0 {
+// 	status = "okay";
+// };
 
-&gpio1 {
-	status = "okay";
-};
+// &gpio1 {
+// 	status = "okay";
+// };
 
-&uart0 {
-	status = "okay";
-	current-speed = <115200>;
-	pinctrl-0 = <&uart0_default>;
-	pinctrl-1 = <&uart0_sleep>;
-	pinctrl-names = "default", "sleep";
-};
+// &uart0 {
+// 	status = "okay";
+// 	current-speed = <115200>;
+// 	pinctrl-0 = <&uart0_default>;
+// 	pinctrl-1 = <&uart0_sleep>;
+// 	pinctrl-names = "default", "sleep";
+// };
 
 &timer0 {
 	status = "okay";

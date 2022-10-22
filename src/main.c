@@ -268,7 +268,8 @@ static const char *now_str(void) {
   return buf;
 }
 
-static int setup_flash(struct fs_mount_t *mnt) {
+static int setup_flash(struct fs_mount_t *mnt)
+{
 
   int rc = 0;
 #if CONFIG_DISK_DRIVER_FLASH
@@ -279,16 +280,22 @@ static int setup_flash(struct fs_mount_t *mnt) {
   id = (uintptr_t)mnt->storage_dev;
 
   rc = flash_area_open(id, &pfa);
-  printk("Area %u at 0x%x on %s for %u bytes\n",
-         id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
-         (unsigned int)pfa->fa_size);
+  // LOG_INF("Area %u at 0x%x on %s for %u bytes\n",
+  //         id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
+  //         (unsigned int)pfa->fa_size);
 
-  if (rc < 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE))
+  if (rc < 0)
   {
-    printk("Erasing flash area ... ");
-    rc = flash_area_erase(pfa, 0, pfa->fa_size);
-    printk("%d\n", rc);
+    flash_area_close(pfa);
+    return rc;
   }
+
+  // if (IS_ENABLED(CONFIG_APP_WIPE_STORAGE))
+  // {
+    // LOG_INF("Erasing flash area ... ");
+    rc = flash_area_erase(pfa, 0, pfa->fa_size);
+    // LOG_INF("%d\n", rc);
+  // }
 
   if (rc < 0)
   {
@@ -1285,27 +1292,27 @@ void main(void) {
   LOG_INF("Starting DataDisc v2\n");
 
   // Initialize the Bluetooth Subsystem
-  datadisc_bt_init();
+  //datadisc_bt_init();
 
   // Initialize USB and mass storage
   setup_disk();
 
   k_msleep(2);
 
-  err = usb_enable(NULL);
-  if (err != 0) {
-    LOG_ERR("Failed to enable USB");
-    return;
-  }
+  // err = usb_enable(NULL);
+  // if (err != 0) {
+  //   LOG_ERR("Failed to enable USB");
+  //   return;
+  // }
 
-  LOG_INF("USB mass storage setup complete.\n");
+  // LOG_INF("USB mass storage setup complete.\n");
 
   //dev = device_get_binding("GPIO_0");
 
-  err = gpio_pin_configure(device_get_binding("GPIO_0"), 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
-  if (err < 0) {
-    return;
-  }
+  // err = gpio_pin_configure(device_get_binding("GPIO_0"), 10, (GPIO_OUTPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+  // if (err < 0) {
+  //   return;
+  // }
 
   datadisc_state = IDLE;
 

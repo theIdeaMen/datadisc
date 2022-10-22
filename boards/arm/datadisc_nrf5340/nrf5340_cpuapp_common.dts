@@ -11,9 +11,9 @@
 		zephyr,shell-uart = &uart0;
 		zephyr,uart-mcumgr = &uart0;
 		zephyr,bt-uart = &uart0;
-		zephyr,bt-mon-uart = &uart0;
-		zephyr,bt-c2h-uart = &uart0;
-		zephyr,bt-hci-rpmsg-ipc = &ipc0;
+		// zephyr,bt-mon-uart = &uart0;
+		// zephyr,bt-c2h-uart = &uart0;
+		// zephyr,bt-hci-rpmsg-ipc = &ipc0;
 		nordic,pm-ext-flash = &mx25u32;
 	};
 	
@@ -24,13 +24,13 @@
 		};
 	};
 	
-	gpio_fwd: nrf-gpio-forwarder {
-		compatible = "nordic,nrf-gpio-forwarder";
-		status = "okay";
-		uart {
-			gpios = <&gpio0 24 0>, <&gpio0 30 0>, <&gpio0 23 0>, <&gpio0 29 0>;
-		};
-	};
+	// gpio_fwd: nrf-gpio-forwarder {
+	// 	compatible = "nordic,nrf-gpio-forwarder";
+	// 	status = "okay";
+	// 	uart {
+	// 		gpios = <&gpio0 24 0>, <&gpio0 30 0>, <&gpio0 23 0>, <&gpio0 29 0>;
+	// 	};
+	// };
 	
 	/* These aliases are provided for compatibility with samples */
 	aliases {
