@@ -12,9 +12,9 @@
 	compatible = "nordic,datadisc-nrf5340-cpunet";
 
 	chosen {
-		zephyr,console = &uart0;
-		zephyr,bt-mon-uart = &uart0;
-		zephyr,bt-c2h-uart = &uart0;
+		// zephyr,console = &uart0;
+		// zephyr,bt-mon-uart = &uart0;
+		// zephyr,bt-c2h-uart = &uart0;
 		zephyr,sram = &sram1;
 		zephyr,flash = &flash1;
 		zephyr,code-partition = &slot0_partition;
@@ -34,14 +34,14 @@
 	status = "okay";
 };
 
-&uart0 {
-	status = "okay";
-	current-speed = <115200>;
-	tx-pin = <20>;
-	rx-pin = <22>;
-	rts-pin = <19>;
-	cts-pin = <21>;
-};
+// &uart0 {
+// 	status = "okay";
+// 	current-speed = <115200>;
+// 	tx-pin = <20>;
+// 	rx-pin = <22>;
+// 	rts-pin = <19>;
+// 	cts-pin = <21>;
+// };
 
 &timer0 {
 	status = "okay";

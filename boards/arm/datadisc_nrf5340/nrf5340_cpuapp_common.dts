@@ -28,13 +28,13 @@
 		};
 	};
 
-	gpio_fwd: nrf-gpio-forwarder {
-		compatible = "nordic,nrf-gpio-forwarder";
-		status = "okay";
-		uart {
-			gpios = <&gpio0 20 0>, <&gpio0 22 0>, <&gpio0 19 0>, <&gpio0 21 0>;
-		};
-	};
+	// gpio_fwd: nrf-gpio-forwarder {
+	// 	compatible = "nordic,nrf-gpio-forwarder";
+	// 	status = "okay";
+	// 	uart {
+	// 		gpios = <&gpio0 20 0>, <&gpio0 22 0>, <&gpio0 19 0>, <&gpio0 21 0>;
+	// 	};
+	// };
 	
 	/* These aliases are provided for compatibility with samples */
 	aliases {
@@ -71,7 +71,7 @@
 	compatible = "nordic,nrf-twim";
 	status = "okay";
 	
-	clock-frequency = <400000>;
+	clock-frequency = <100000>;
 	sda-pin = <35>;
 	scl-pin = <34>;
 	

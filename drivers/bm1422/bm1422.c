@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2021-2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,24 +23,38 @@
 
 LOG_MODULE_REGISTER(BM1422, CONFIG_SENSOR_LOG_LEVEL);
 
-static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
-    uint8_t reg_addr, void *data, size_t length) {
 
-  struct bm1422_data *bm1422_data = dev->data;
+/**
+ * Register access.
+ * @param dev - The device structure.
+ * @param cmd - Read or write.
+ * @param reg_addr - The register address.
+ * @param data - Data buffer.
+ * @param length - Number of bytes to read.
+ * @return 0 in case of success, negative error code otherwise.
+ */
+static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
+                             uint8_t reg_addr, void *data, size_t length)
+{
+
   const struct bm1422_config *cfg = dev->config;
 
-  if (cmd == BM1422_READ_REG) {
-    return i2c_burst_read(bm1422_data->bus, cfg->i2c_addr,
-        BM1422_TO_I2C_REG(reg_addr),
-        (uint8_t *)data, length);
-  } else {
-    if (length != 1) {
+  if (cmd == BM1422_READ_REG)
+  {
+    return i2c_burst_read_dt(&cfg->i2c,
+                             BM1422_TO_I2C_REG(reg_addr),
+                             (uint8_t *)data, length);
+  }
+  else
+  {
+    if (length != 1)
+    {
       return -EINVAL;
     }
 
-    return i2c_reg_write_byte(bm1422_data->bus, cfg->i2c_addr,
-        BM1422_TO_I2C_REG(reg_addr),
-        *(uint8_t *)data);
+    return i2c_reg_write_byte_dt(&cfg->i2c,
+                                 BM1422_TO_I2C_REG(reg_addr),
+                                 *(uint8_t *)data);
   }
 }
 
@@ -52,7 +66,7 @@ static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
  * @param count - Number of bytes to read.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_get_reg(const struct device *dev, uint8_t register_address, uint8_t *read_buf, uint8_t count) {
+int bm1422_get_reg(const struct device *dev, uint8_t register_address, uint8_t *read_buf, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_READ_REG,
@@ -68,7 +82,7 @@ static int bm1422_get_reg(const struct device *dev, uint8_t register_address, ui
  * @param count - Number of bytes to write.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_set_reg(const struct device *dev, uint8_t register_address, uint16_t register_value, uint8_t count) {
+int bm1422_set_reg(const struct device *dev, uint8_t register_address, uint16_t register_value, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_WRITE_REG,
@@ -472,6 +486,11 @@ static int bm1422_chip_init(const struct device *dev) {
   int ret;
 
   /* Device settings from kconfig */
+  ret = bm1422_set_reg(dev, BM1422_AVE_A, BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()), 1);
+  if (ret) {
+    return ret;
+  }
+
   data->selected_bits = bm1422_get_kconfig_bits();
   ret = bm1422_set_reg(dev, BM1422_CNTL1, 
                         0 | BM1422_CNTL1_PC1_MODE(1) | 
@@ -481,7 +500,12 @@ static int bm1422_chip_init(const struct device *dev) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, BM1422_AVE_A, BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()), 1);
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
   if (ret) {
     return ret;
   }
@@ -493,25 +517,12 @@ static int bm1422_chip_init(const struct device *dev) {
   if (ret) {
     return ret;
   }
-  k_sleep(K_MSEC(1));
 
   if (bm1422_init_interrupt(dev) < 0) {
     LOG_ERR("Failed to initialize interrupt!");
     return -EIO;
   }
 #endif
-
-  k_sleep(K_MSEC(1));
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
-  if (ret) {
-    return ret;
-  }
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
-  if (ret) {
-    return ret;
-  }
 
   ret = bm1422_set_reg(dev, BM1422_OFFX_LO, 47, 1);
   if (ret) {
@@ -540,13 +551,6 @@ static int bm1422_chip_init(const struct device *dev) {
     return ret;
   }
 
-  k_sleep(K_MSEC(1));
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL3, 0x40, 1);
-  if (ret) {
-    return ret;
-  }
-
   return 0;
 }
 
@@ -556,12 +560,13 @@ static int bm1422_init(const struct device *dev) {
   uint8_t value[2];
   int err;
 
-  data->bus = device_get_binding(cfg->i2c_port);
-  if (data->bus == NULL) {
-    LOG_ERR("Failed to get pointer to %s device!",
-        cfg->i2c_port);
-    return -EINVAL;
-  }
+  data->dev = dev;
+
+  if (!device_is_ready(cfg->i2c.bus))
+	{
+		LOG_ERR("I2C bus not ready!");
+		return -ENODEV;
+	}
 
   err = bm1422_software_reset(dev);
   if (err) {
@@ -581,6 +586,7 @@ static int bm1422_init(const struct device *dev) {
   //}
 
   if (bm1422_chip_init(dev) < 0) {
+    LOG_ERR("BM1422 Failed Chip Init");
     return -ENODEV;
   }
 
@@ -593,21 +599,15 @@ static int bm1422_init(const struct device *dev) {
  *
  * Put this near the end of the file, e.g. after defining "my_api_funcs".
  */
-#define GPIO_DT_SPEC_INST_GET_BY_IDX_COND(id, prop, idx)     \
-  COND_CODE_1(DT_INST_PROP_HAS_IDX(id, prop, idx),           \
-              (GPIO_DT_SPEC_INST_GET_BY_IDX(id, prop, idx)), \
-              ({.port = NULL, .pin = 0, .dt_flags = 0}))
-
 #define CREATE_BM1422_DEVICE(inst)                                \
   static struct bm1422_data bm1422_data_##inst = {                \
       /* initialize RAM values as needed, e.g.: */                \
   };                                                              \
   static const struct bm1422_config bm1422_config_##inst = {      \
       /* initialize ROM values as needed. */                      \
-      .i2c_port = DT_INST_BUS_LABEL(inst),                        \
-      .i2c_addr = DT_INST_REG_ADDR(inst),                         \
+      .i2c = I2C_DT_SPEC_INST_GET(inst),                          \
       .gpio_drdy =                                                \
-          GPIO_DT_SPEC_INST_GET_BY_IDX_COND(inst, irq_gpios, 0),  \
+          GPIO_DT_SPEC_INST_GET_BY_IDX(inst, irq_gpios, 0),       \
   };                                                              \
   DEVICE_DT_INST_DEFINE(inst,                                     \
                         bm1422_init,                              \
