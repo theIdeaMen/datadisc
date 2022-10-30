@@ -1023,8 +1023,6 @@ extern void magn_thread(void) {
       msgq_item.data_y = (float)sensor_value_to_double(&magn_xyz[1]);
       msgq_item.data_z = (float)sensor_value_to_double(&magn_xyz[2]);
 
-      LOG_INF("MAG X: %d", msgq_item.data_x);
-
       /* send data to consumers */
       while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
         /* message queue is full: purge old data & try again */

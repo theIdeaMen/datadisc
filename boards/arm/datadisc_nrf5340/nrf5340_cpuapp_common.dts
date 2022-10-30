@@ -71,7 +71,7 @@
 	compatible = "nordic,nrf-twim";
 	status = "okay";
 	
-	clock-frequency = <100000>;
+	clock-frequency = <400000>;
 	sda-pin = <35>;
 	scl-pin = <34>;
 	
