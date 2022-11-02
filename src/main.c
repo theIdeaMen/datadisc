@@ -20,11 +20,12 @@
 #include <logging/log_ctrl.h>
 #include <sys/util.h>
 #include <sys/byteorder.h>
-//#include <sys/reboot.h>
-//#include <shell/shell.h>
+#include <sys/reboot.h>
+#include <shell/shell.h>
 
+#include <ff.h>
 #include <fs/fs.h>
-#include <storage/disk_access.h>
+#include <storage/flash_map.h>
 #include <usb/usb_device.h>
 
 #include <drivers/flash.h>
@@ -33,14 +34,16 @@
 #include <drivers/sensor.h>
 #include <drivers/uart.h>
 
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/hci.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/uuid.h>
-#include <zephyr/bluetooth/gatt.h>
-
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/conn.h>
+#include <bluetooth/gatt.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/uuid.h>
 #include <bluetooth/services/bas.h>
-#include <bluetooth/services/nus.h>
+
+#include <mgmt/mcumgr/smp_bt.h>
+#include "os_mgmt/os_mgmt.h"
+#include "img_mgmt/img_mgmt.h"
 
 #include "battery.h"
 #include "kx134.h"
@@ -77,10 +80,6 @@ static const char *const state_strings[] = {
 
 #if CONFIG_DISK_DRIVER_FLASH
 #include <storage/flash_map.h>
-#endif
-
-#if CONFIG_FAT_FILESYSTEM_ELM
-#include <ff.h>
 #endif
 
 #if CONFIG_FILE_SYSTEM_LITTLEFS
@@ -1292,20 +1291,20 @@ void main(void) {
   LOG_INF("Starting DataDisc v2\n");
 
   // Initialize the Bluetooth Subsystem
-  //datadisc_bt_init();
+  datadisc_bt_init();
 
   // Initialize USB and mass storage
   setup_disk();
 
   k_msleep(2);
 
-  // err = usb_enable(NULL);
-  // if (err != 0) {
-  //   LOG_ERR("Failed to enable USB");
-  //   return;
-  // }
+  err = usb_enable(NULL);
+  if (err != 0) {
+    LOG_ERR("Failed to enable USB");
+    return;
+  }
 
-  // LOG_INF("USB mass storage setup complete.\n");
+  LOG_INF("USB mass storage setup complete.\n");
 
   //dev = device_get_binding("GPIO_0");
 
