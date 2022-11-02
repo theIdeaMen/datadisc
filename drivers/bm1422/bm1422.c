@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2021-2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -66,7 +66,7 @@ static int bm1422_reg_access(const struct device *dev, uint8_t cmd,
  * @param count - Number of bytes to read.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_get_reg(const struct device *dev, uint8_t register_address, uint8_t *read_buf, uint8_t count) {
+int bm1422_get_reg(const struct device *dev, uint8_t register_address, uint8_t *read_buf, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_READ_REG,
@@ -82,7 +82,7 @@ static int bm1422_get_reg(const struct device *dev, uint8_t register_address, ui
  * @param count - Number of bytes to write.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int bm1422_set_reg(const struct device *dev, uint8_t register_address, uint16_t register_value, uint8_t count) {
+int bm1422_set_reg(const struct device *dev, uint8_t register_address, uint16_t register_value, uint8_t count) {
 
   return bm1422_reg_access(dev,
       BM1422_WRITE_REG,
@@ -486,6 +486,11 @@ static int bm1422_chip_init(const struct device *dev) {
   int ret;
 
   /* Device settings from kconfig */
+  ret = bm1422_set_reg(dev, BM1422_AVE_A, BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()), 1);
+  if (ret) {
+    return ret;
+  }
+
   data->selected_bits = bm1422_get_kconfig_bits();
   ret = bm1422_set_reg(dev, BM1422_CNTL1, 
                         0 | BM1422_CNTL1_PC1_MODE(1) | 
@@ -495,7 +500,12 @@ static int bm1422_chip_init(const struct device *dev) {
     return ret;
   }
 
-  ret = bm1422_set_reg(dev, BM1422_AVE_A, BM1422_AVE_A_MODE(bm1422_get_kconfig_ave()), 1);
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
+  if (ret) {
+    return ret;
+  }
+
+  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
   if (ret) {
     return ret;
   }
@@ -507,25 +517,12 @@ static int bm1422_chip_init(const struct device *dev) {
   if (ret) {
     return ret;
   }
-  k_sleep(K_MSEC(1));
 
   if (bm1422_init_interrupt(dev) < 0) {
     LOG_ERR("Failed to initialize interrupt!");
     return -EIO;
   }
 #endif
-
-  k_sleep(K_MSEC(1));
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL4_LO, 0x00, 1);
-  if (ret) {
-    return ret;
-  }
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL4_HI, 0x00, 1);
-  if (ret) {
-    return ret;
-  }
 
   ret = bm1422_set_reg(dev, BM1422_OFFX_LO, 47, 1);
   if (ret) {
@@ -550,13 +547,6 @@ static int bm1422_chip_init(const struct device *dev) {
     return ret;
   }
   ret = bm1422_set_reg(dev, BM1422_OFFZ_HI, 0, 1);
-  if (ret) {
-    return ret;
-  }
-
-  k_sleep(K_MSEC(1));
-
-  ret = bm1422_set_reg(dev, BM1422_CNTL3, 0x40, 1);
   if (ret) {
     return ret;
   }
@@ -596,6 +586,7 @@ static int bm1422_init(const struct device *dev) {
   //}
 
   if (bm1422_chip_init(dev) < 0) {
+    LOG_ERR("BM1422 Failed Chip Init");
     return -ENODEV;
   }
 

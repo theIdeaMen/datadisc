@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2021-2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -208,6 +208,12 @@ struct bm1422_config {
 
 #ifdef CONFIG_BM1422_TRIGGER
 int bm1422_get_status(const struct device *dev, uint8_t *status);
+
+int bm1422_get_reg(const struct device *dev, uint8_t register_address, 
+				uint8_t *read_buf, uint8_t count);
+
+int bm1422_set_reg(const struct device *dev, uint8_t register_address, 
+				uint16_t register_value, uint8_t count);
 
 int bm1422_reg_write_mask(const struct device *dev,
 			   uint8_t reg_addr, uint8_t mask, uint8_t data);

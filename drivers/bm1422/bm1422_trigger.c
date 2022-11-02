@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Griffin Adams
+ * Copyright (c) 2021-2022 Griffin Adams
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,8 +12,8 @@
 #include <drivers/sensor.h>
 #include <kernel.h>
 #include <sys/util.h>
-
 #include <logging/log.h>
+
 LOG_MODULE_DECLARE(BM1422, CONFIG_SENSOR_LOG_LEVEL);
 
 static void bm1422_thread_cb(const struct device *dev) {
@@ -54,37 +54,45 @@ static void bm1422_work_cb(struct k_work *work) {
 }
 #endif
 
-int bm1422_trigger_set(const struct device *dev, const struct sensor_trigger *trig, sensor_trigger_handler_t handler) {
+int bm1422_trigger_drdy_set(const struct device *dev,
+                            sensor_trigger_handler_t handler) {
+  const struct bm1422_config *cfg = dev->config;
   struct bm1422_data *drv_data = dev->data;
-  uint8_t int_mask, int_en;
+  int status;
 
-  switch (trig->type) {
-  case SENSOR_TRIG_THRESHOLD:
-    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
-    drv_data->th_handler = handler;
-    drv_data->th_trigger = *trig;
-    int_mask = 0;
-    break;
-  case SENSOR_TRIG_DATA_READY:
-    k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
-    drv_data->drdy_handler = handler;
-    drv_data->drdy_trigger = *trig;
-    k_mutex_unlock(&drv_data->trigger_mutex);
-    int_mask = BM1422_CNTL2_DREN_MSK;
-    bm1422_clear_interrupts(dev);
-    break;
-  default:
-    LOG_ERR("Unsupported sensor trigger");
+  if (cfg->gpio_drdy.port == NULL) {
+    LOG_ERR("trigger_set DRDY int not supported");
     return -ENOTSUP;
   }
 
-  if (handler) {
-    int_en = int_mask;
-  } else {
-    int_en = 0U;
+  k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
+  drv_data->drdy_handler = handler;
+  k_mutex_unlock(&drv_data->trigger_mutex);
+
+  bm1422_clear_interrupts(dev);
+
+  status = gpio_pin_interrupt_configure_dt(&cfg->gpio_drdy, GPIO_INT_EDGE_TO_ACTIVE);
+  if (status < 0) {
+    return status;
   }
 
-  return 0;
+  status = bm1422_set_reg(dev, BM1422_CNTL3, 0x40, 1);
+  if (status) {
+    return status;
+  }
+
+  return status;
+}
+
+int bm1422_trigger_set(const struct device *dev,
+                       const struct sensor_trigger *trig,
+                       sensor_trigger_handler_t handler) {
+    if (trig->type == SENSOR_TRIG_DATA_READY) {
+        return bm1422_trigger_drdy_set(dev, handler);
+    }
+    LOG_ERR("Unsupported sensor trigger");
+
+    return -ENOTSUP;
 }
 
 int bm1422_init_interrupt(const struct device *dev) {
