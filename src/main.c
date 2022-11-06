@@ -206,6 +206,16 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 static void datadisc_bt_init() {
   int err;
 
+  LOG_INF("build time: " __DATE__ " " __TIME__ "\n");
+  os_mgmt_register_group();
+  img_mgmt_register_group();
+
+  err = smp_bt_register();
+  if (err) {
+    LOG_ERR("BLE: smp bt register failed (err %d)\n", err);
+    return;
+  }
+
   err = bt_enable(NULL);
   if (err) {
     LOG_ERR("Bluetooth init failed (err %d)\n", err);
