@@ -16,26 +16,39 @@
 
 LOG_MODULE_DECLARE(KX134, CONFIG_SENSOR_LOG_LEVEL);
 
-#define TRIGGED_INT    1
+#define TRIGGED_INT1    1
+#define TRIGGED_INT2    2
 
 static void kx134_thread_cb(const struct device *dev) {
-const struct kx134_config *cfg = dev->config;
+  const struct kx134_config *cfg = dev->config;
   struct kx134_data *drv_data = dev->data;
+  uint8_t buf[6];
+  int ret;
 
   k_mutex_lock(&drv_data->trigger_mutex, K_FOREVER);
 
   if (cfg->gpio_drdy.port &&
-      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT)) {
+      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT1)) {
 
     if (drv_data->drdy_handler != NULL) {
       drv_data->drdy_handler(dev, &drv_data->drdy_trigger);
     }
-    kx134_clear_interrupts(dev);
-    k_mutex_unlock(&drv_data->trigger_mutex);
-    return;
   }
 
-  if (cfg->gpio_int.port) {
+  if (cfg->gpio_int.port &&
+      atomic_test_and_clear_bit(&drv_data->trig_flags, TRIGGED_INT2)) {
+
+    ret = kx134_get_reg(drv_data->dev, (uint8_t *)buf, KX134_INS1, 3);
+    if (!ret) {
+      drv_data->tap_int = buf[0];
+      drv_data->func_int = buf[1];
+      drv_data->wkup_int = buf[2];
+    }
+    else {
+      drv_data->tap_int = 0;
+      drv_data->func_int = 0;
+      drv_data->wkup_int = 0;
+    }
 
     if (drv_data->idle_handler != NULL && KX134_INS3_BTS(drv_data->wkup_int)) {
       drv_data->idle_handler(dev, &drv_data->idle_trigger);
@@ -46,10 +59,11 @@ const struct kx134_config *cfg = dev->config;
     else if (drv_data->dbtp_handler != NULL && KX134_INS2_DTS(drv_data->func_int)) {
       drv_data->dbtp_handler(dev, &drv_data->dbtp_trigger);
     }
-    kx134_clear_interrupts(dev);
-    k_mutex_unlock(&drv_data->trigger_mutex);
-    return;
   }
+
+  kx134_clear_interrupts(dev);
+  k_mutex_unlock(&drv_data->trigger_mutex);
+  return;
 }
 
 static void kx134_gpio_int1_callback(const struct device *dev, 
@@ -58,7 +72,7 @@ static void kx134_gpio_int1_callback(const struct device *dev,
 
   ARG_UNUSED(pins);
 
-  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT);
+  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT1);
   
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
@@ -70,18 +84,11 @@ static void kx134_gpio_int1_callback(const struct device *dev,
 static void kx134_gpio_int2_callback(const struct device *dev, 
                                      struct gpio_callback *cb, uint32_t pins) {
   struct kx134_data *drv_data = CONTAINER_OF(cb, struct kx134_data, gpio_int2_cb);
-  uint8_t buf[6];
-  int ret;
 
   ARG_UNUSED(pins);
 
-  ret = kx134_get_reg(drv_data->dev, (uint8_t *)buf, KX134_INS1, 3);
-  if (!ret) {
-    drv_data->tap_int = buf[0];
-    drv_data->func_int = buf[1];
-    drv_data->wkup_int = buf[2];
-  }
-  
+  atomic_set_bit(&drv_data->trig_flags, TRIGGED_INT2);
+
 #if defined(CONFIG_KX134_TRIGGER_OWN_THREAD)
   k_sem_give(&drv_data->gpio_sem);
 #elif defined(CONFIG_KX134_TRIGGER_GLOBAL_THREAD)
