@@ -248,7 +248,8 @@ static void wait_on_log_flushed(void) {
 }
 
 uint32_t uptime_get_us(void) {
-  return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
+  //return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
+  return k_cyc_to_us_near32(k_cycle_get_32());
 }
 
 static inline int32_t sensor_value_to_32(const struct sensor_value *val) {

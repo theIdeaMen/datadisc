@@ -347,7 +347,7 @@ enum bm1422_odr bm1422_get_kconfig_odr(void) {
   return BM1422_ODR_20HZ;
 #elif CONFIG_BM1422_ODR_100HZ
   return BM1422_ODR_100HZ;
-#elif CONFIG_BM1422_ODR_1000HZ
+#elif CONFIG_BM1422_ODR_1KHZ
   return BM1422_ODR_1000HZ;
 #endif
 }
