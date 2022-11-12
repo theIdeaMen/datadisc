@@ -249,7 +249,8 @@ static void wait_on_log_flushed(void) {
 
 uint32_t uptime_get_us(void) {
   //return (uint32_t)(k_uptime_ticks() * 1000000 / CONFIG_SYS_CLOCK_TICKS_PER_SEC);
-  return k_cyc_to_us_near32(k_cycle_get_32());
+  //return k_cyc_to_us_near32(k_cycle_get_32());
+  return k_cycle_get_32();
 }
 
 static inline int32_t sensor_value_to_32(const struct sensor_value *val) {
@@ -610,7 +611,7 @@ extern void led_control_thread(void) {
       LOG_ERR("err=%d", err);
       return;
     }
-    k_msleep(10);
+    k_msleep(33);
   }
 }
 
@@ -636,6 +637,10 @@ K_SEM_DEFINE(sem_accel_beta_idle, 0, 1);
 static void accel_alpha_drdy_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
   ARG_UNUSED(trigger);
+
+  struct kx134_data *kx134_data = dev->data;
+
+  kx134_data->timestamp = uptime_get_us();
 
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
@@ -703,7 +708,7 @@ extern void accel_alpha_drdy_thread(void) {
 
       sample_counter += 1;
 
-      msgq_item.timestamp = uptime_get_us();
+      msgq_item.timestamp = drv_data->timestamp;
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
       msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
@@ -804,6 +809,10 @@ static void accel_beta_drdy_trigger_handler(const struct device *dev, struct sen
 
   ARG_UNUSED(trigger);
 
+  struct kx134_data *kx134_data = dev->data;
+
+  kx134_data->timestamp = uptime_get_us();
+
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
     return;
@@ -870,7 +879,7 @@ extern void accel_beta_drdy_thread(void) {
 
       sample_counter += 1;
 
-      msgq_item.timestamp = uptime_get_us();
+      msgq_item.timestamp = drv_data->timestamp;
 
       sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, acc_xyz);
       msgq_item.data_x = (float)sensor_value_to_double(&acc_xyz[0]);
@@ -979,6 +988,10 @@ K_SEM_DEFINE(magn_sem, 0, 1);
 
 static void magn_trigger_handler(const struct device *dev, struct sensor_trigger *trigger) {
 
+  struct bm1422_data *bm1422_data = dev->data;
+
+  bm1422_data->timestamp = uptime_get_us();
+
   if (sensor_sample_fetch(dev)) {
     LOG_ERR("sensor_sample_fetch failed");
     return;
@@ -998,6 +1011,7 @@ extern void magn_thread(void) {
   k_mutex_unlock(&init_mut);
 
   const struct device *dev = device_get_binding(MAGN_DEVICE);
+  struct bm1422_data *bm1422_data = dev->data;
   datalog_msgq_item_t msgq_item;
   struct sensor_value magn_xyz[3];
 
@@ -1029,7 +1043,7 @@ extern void magn_thread(void) {
 
     if (datadisc_state == LOG) {
       
-      msgq_item.timestamp = uptime_get_us();
+      msgq_item.timestamp = bm1422_data->timestamp;
 
       sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
       msgq_item.data_x = (float)sensor_value_to_double(&magn_xyz[0]);

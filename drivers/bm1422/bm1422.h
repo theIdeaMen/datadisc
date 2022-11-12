@@ -166,6 +166,7 @@ struct bm1422_data {
 	} __packed;
 
 	int16_t temperature;
+	uint32_t timestamp;
 	enum bm1422_out_bit selected_bits;
 
 #if defined(CONFIG_BM1422_TRIGGER)

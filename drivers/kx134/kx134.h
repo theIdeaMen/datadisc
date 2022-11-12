@@ -601,7 +601,9 @@ struct kx134_data {
 		};
 	} __packed;
 
-        enum kx134_gsel selected_range;
+    enum kx134_gsel selected_range;
+
+	uint32_t timestamp;
 
 #if defined(CONFIG_KX134_TRIGGER)
 	const struct device *dev;
