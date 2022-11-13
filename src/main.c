@@ -611,7 +611,7 @@ extern void led_control_thread(void) {
       LOG_ERR("err=%d", err);
       return;
     }
-    k_msleep(33);
+    k_msleep(13);
   }
 }
 
@@ -723,9 +723,12 @@ extern void accel_alpha_drdy_thread(void) {
         // reset speed-up timer
         prev_time = msgq_item.timestamp;
         sample_mod = 1;
+        // make sure log doesn't stop yet
+        datadisc_state = LOG;
       }
 
-      if (msgq_item.timestamp - prev_time > 10000) {
+      // timestamp is in cpu cycles now...
+      if (msgq_item.timestamp - prev_time > 30000) {
         // Only save every 10th sample now
         sample_mod = 10;
       }
@@ -741,6 +744,7 @@ extern void accel_alpha_drdy_thread(void) {
   }
 }
 
+// About 14% cpu load with this thread
 K_THREAD_DEFINE(accel_alpha_drdy_id, STACKSIZE, accel_alpha_drdy_thread,
     NULL, NULL, NULL, PRIORITY, 0, TDELAY);
 
@@ -894,9 +898,12 @@ extern void accel_beta_drdy_thread(void) {
         // reset speed-up timer
         prev_time = msgq_item.timestamp;
         sample_mod = 1;
+        // make sure log doesn't stop yet
+        datadisc_state = LOG;
       }
 
-      if (msgq_item.timestamp - prev_time > 10000) {
+      // timestamp is in cpu cycles now...
+      if (msgq_item.timestamp - prev_time > 30000) {
         // Only save every 10th sample now
         sample_mod = 10;
       }
@@ -1354,6 +1361,8 @@ void main(void) {
   SEGGER_RTT_Init();
 
   LOG_INF("Starting DataDisc v2\n");
+
+  cpu_load_init();
 
   // Initialize the Bluetooth Subsystem
   datadisc_bt_init();
