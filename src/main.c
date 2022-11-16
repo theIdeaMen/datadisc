@@ -1022,6 +1022,8 @@ extern void magn_thread(void) {
   datalog_msgq_item_t msgq_item;
   struct sensor_value magn_xyz[3];
 
+  uint16_t sample_counter = 0;
+
   if (!dev) {
     LOG_ERR("Devicetree has no rohm,bm1422agmv node");
     return;
@@ -1049,18 +1051,22 @@ extern void magn_thread(void) {
     k_sem_take(&magn_sem, K_FOREVER);
 
     if (datadisc_state == LOG) {
+
+      sample_counter += 1;
       
-      msgq_item.timestamp = bm1422_data->timestamp;
-
-      sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
-      msgq_item.data_x = (float)sensor_value_to_double(&magn_xyz[0]);
-      msgq_item.data_y = (float)sensor_value_to_double(&magn_xyz[1]);
-      msgq_item.data_z = (float)sensor_value_to_double(&magn_xyz[2]);
-
       /* send data to consumers */
-      while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
-        /* message queue is full: purge old data & try again */
-        k_msgq_purge(&accel_msgq);
+      if (sample_counter % 2 == 0) {
+        msgq_item.timestamp = bm1422_data->timestamp;
+
+        sensor_channel_get(dev, SENSOR_CHAN_MAGN_XYZ, magn_xyz);
+        msgq_item.data_x = (float)sensor_value_to_double(&magn_xyz[0]);
+        msgq_item.data_y = (float)sensor_value_to_double(&magn_xyz[1]);
+        msgq_item.data_z = (float)sensor_value_to_double(&magn_xyz[2]);
+
+        while (k_msgq_put(&accel_msgq, &msgq_item, K_NO_WAIT) != 0) {
+          /* message queue is full: purge old data & try again */
+          k_msgq_purge(&accel_msgq);
+        }
       }
     }
   }
