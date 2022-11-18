@@ -40,6 +40,7 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/services/bas.h>
+#include <bluetooth/services/nus.h>
 
 #include <mgmt/mcumgr/smp_bt.h>
 #include "os_mgmt/os_mgmt.h"
@@ -194,6 +195,22 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
     .disconnected = disconnected,
 };
 
+static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
+			  uint16_t len)
+{
+	int err;
+	char addr[BT_ADDR_LE_STR_LEN] = {0};
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
+
+	LOG_INF("Received data from: %s", log_strdup(addr));
+
+}
+
+static struct bt_nus_cb nus_cb = {
+	.received = bt_receive_cb,
+};
+
 static void datadisc_bt_init() {
   int err;
 
@@ -214,6 +231,16 @@ static void datadisc_bt_init() {
   }
 
   LOG_INF("Bluetooth initialized\n");
+
+  if (IS_ENABLED(CONFIG_SETTINGS)) {
+		settings_load();
+	}
+
+	err = bt_nus_init(&nus_cb);
+	if (err) {
+		LOG_ERR("Failed to initialize UART service (err: %d)", err);
+		return;
+	}
 
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
@@ -1121,6 +1148,10 @@ extern void runtime_compute_thread(void) {
     if (k_msgq_num_free_get(&datalog_msgq) <= 0) {
       temp_counter += 1;
     }
+
+    if (bt_nus_send(NULL, &data_item, data_item.length)) {
+			LOG_WRN("Failed to send data over BLE connection");
+		}
 
     /* Send the string to the FLASH write thread */
     while (k_msgq_put(&datalog_msgq, &data_item, K_NO_WAIT) != 0) {
